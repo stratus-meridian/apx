@@ -47,6 +47,7 @@ services:
       - LOG_SAMPLE_RATE=1.0
       - ENABLE_CANARY=true
       - ENABLE_CACHE=true
+      - ROUTES_CONFIG=/mock/**=https://mocktarget.apigee.net:sync
     depends_on:
       - redis
       - firestore

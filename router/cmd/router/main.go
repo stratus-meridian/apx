@@ -131,13 +131,36 @@ func main() {
 		zap.Bool("ordering_enabled", true))
 
 	// Construct base URL for status/stream URLs
-	baseURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
-	if cfg.Environment == "production" {
-		baseURL = "https://api.apx.dev" // Production URL
+	baseURL := cfg.PublicURL
+	if baseURL == "" {
+		// Fallback to localhost if PUBLIC_URL not set
+		baseURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
+		logger.Warn("PUBLIC_URL not set, using localhost", zap.String("baseURL", baseURL))
+	} else {
+		logger.Info("using configured PUBLIC_URL", zap.String("baseURL", baseURL))
 	}
 
-	// Initialize route matcher with real topic
+	// Initialize route matcher with real topic (async mode)
 	routeMatcher := routes.NewMatcher(pubsubTopic, statusStore, logger, baseURL)
+
+	// Load route configurations (sync/async modes)
+	routeConfigs := config.LoadRoutesFromEnv()
+	if len(routeConfigs) == 0 {
+		logger.Info("no route configurations found, using defaults (async-only mode)")
+	} else {
+		logger.Info("loaded route configurations",
+			zap.Int("count", len(routeConfigs)))
+		for _, rc := range routeConfigs {
+			logger.Info("route registered",
+				zap.String("path", rc.Path),
+				zap.String("backend", rc.Backend),
+				zap.String("mode", rc.Mode))
+		}
+	}
+
+	// Initialize sync proxy for configured routes
+	syncProxyMulti := routes.NewSyncProxyMulti(routeConfigs, logger)
+	defer syncProxyMulti.Close()
 
 	// Create HTTP router
 	r := mux.NewRouter()
@@ -168,13 +191,28 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
 
 	// Main routing handler
+	// Supports both sync (direct proxy) and async (pub/sub) modes
 	// Note: Rate limiting is applied AFTER tenant context extraction
+	asyncHandler := middleware.Chain(
+		http.HandlerFunc(routeMatcher.Handle),
+		middleware.RequestID(logger),
+		middleware.TenantContext(logger),
+		middleware.RateLimit(rateLimiter, logger), // Token bucket rate limiting
+		middleware.PolicyVersionTag(policyStore, logger),
+		middleware.Metrics(),
+		middleware.Logging(logger),
+		middleware.Tracing(),
+	)
+
+	// Use sync proxy with fallback to async
+	// If a route is configured as "sync", it will proxy directly
+	// Otherwise, falls back to async (pub/sub) mode
 	r.PathPrefix("/").Handler(
 		middleware.Chain(
-			http.HandlerFunc(routeMatcher.Handle),
+			syncProxyMulti.HandleWithFallback(asyncHandler),
 			middleware.RequestID(logger),
 			middleware.TenantContext(logger),
-			middleware.RateLimit(rateLimiter, logger), // Token bucket rate limiting
+			middleware.RateLimit(rateLimiter, logger),
 			middleware.PolicyVersionTag(policyStore, logger),
 			middleware.Metrics(),
 			middleware.Logging(logger),
