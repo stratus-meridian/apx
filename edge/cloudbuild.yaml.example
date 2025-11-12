@@ -1,0 +1,21 @@
+steps:
+  # Build the Edge Gateway container
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/edge:latest'
+      - '-t'
+      - 'REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/edge:$BUILD_ID'
+      - '-f'
+      - 'edge/Dockerfile'
+      - '.'
+    timeout: 600s
+
+images:
+  - 'REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/edge:latest'
+  - 'REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/edge:$BUILD_ID'
+
+options:
+  machineType: 'N1_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

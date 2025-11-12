@@ -114,6 +114,12 @@ results/
 setup-*.sh
 setup-commands.sh
 
+# Deployment files (use .example templates, store actual in .private/)
+edge/cloudbuild.yaml
+edge/.gcloudignore
+router/cloudbuild.yaml
+workers/cloudbuild.yaml
+
 # ============================================================================
 # CLOUD & DEPLOYMENT
 # ============================================================================
