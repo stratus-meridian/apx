@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -110,10 +111,53 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// Start HTTP health endpoint for Cloud Run
+	port := getEnv("PORT", "8080")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"service": "apx-worker-cpu",
+		})
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		// Check if Pub/Sub subscription is accessible
+		exists, err := sub.Exists(ctx)
+		if err != nil || !exists {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"status": "not ready",
+				"reason": "subscription unavailable",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "ready",
+		})
+	})
+
+	httpServer := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	// Start HTTP server in background
+	go func() {
+		logger.Info("starting health endpoint", zap.String("port", port))
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("http server error", zap.Error(err))
+		}
+	}()
+
+	// Handle shutdown
 	go func() {
 		<-sigChan
 		logger.Info("shutdown signal received")
 		cancel()
+		httpServer.Shutdown(context.Background())
 	}()
 
 	// Start receiving messages
