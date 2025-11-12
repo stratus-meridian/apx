@@ -1,33 +1,36 @@
-# Multi-stage Dockerfile for APX Edge Gateway
-# Based on official Envoy image with custom WASM filters
+# Dockerfile for APX Edge Gateway - Cloud Run Deployment
+# Based on official Envoy image with Cloud Run optimizations
 
-FROM envoyproxy/envoy:v1.29-latest as base
+FROM envoyproxy/envoy:v1.29-latest
 
-# Add custom WASM filters
-FROM base as wasm-builder
-WORKDIR /build
-# WASM filters will be built separately and copied in
-# For now, create placeholder directory
-RUN mkdir -p /etc/envoy/wasm
+# Install envsubst for environment variable substitution
+USER root
+RUN apt-get update && \
+    apt-get install -y gettext-base && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Final image
-FROM base
+# Copy Envoy configuration (cloud version)
+COPY edge/envoy/envoy-cloud.yaml /etc/envoy/envoy-cloud.yaml
 
-# Copy Envoy configuration
-COPY edge/envoy/envoy.yaml /etc/envoy/envoy.yaml
+# Copy entrypoint script
+COPY edge/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-# Copy WASM filters (when available)
-COPY --from=wasm-builder /etc/envoy/wasm /etc/envoy/wasm
+# Health check (Cloud Run uses /healthz)
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Health check
-HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:9901/ready || exit 1
+# Expose port 8080 (Cloud Run requirement)
+EXPOSE 8080
 
-# Expose ports
-# 8080: Main HTTP port
-# 9901: Admin port
-EXPOSE 8080 9901
+# Switch to non-root user
+USER envoy
 
-# Run Envoy
-ENTRYPOINT ["/usr/local/bin/envoy"]
-CMD ["-c", "/etc/envoy/envoy.yaml", "--service-cluster", "apx-edge"]
+# Set environment defaults
+ENV ROUTER_HOST="router-placeholder.example.com"
+ENV PORT="8080"
+
+# Run via entrypoint script
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD []
