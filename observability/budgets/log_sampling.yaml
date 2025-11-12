@@ -1,0 +1,206 @@
+# APX Observability Budget & Log Sampling Configuration
+# Ensures observability costs stay below 7% of infrastructure spend
+
+version: "1.0"
+updated: "2025-11-11"
+
+# Log Sampling Rules
+# Applied at edge (Envoy) and workers (application level)
+sampling_rules:
+  edge:
+    # Envoy access log sampling
+    success_requests:
+      # Status < 400
+      sample_rate: 0.01  # 1%
+      description: "Sample 1% of successful requests to reduce log volume"
+
+    error_requests:
+      # Status >= 400
+      sample_rate: 1.0   # 100%
+      description: "Log all errors for debugging and SLO monitoring"
+
+    high_value_paths:
+      # Always log certain endpoints regardless of status
+      paths:
+        - "/v1/auth/*"
+        - "/v1/admin/*"
+        - "/v1/webhook/*"
+      sample_rate: 1.0   # 100%
+      description: "Critical paths always logged"
+
+  router:
+    # Go router application logs
+    success_requests:
+      sample_rate: 0.01  # 1%
+      structured_logging: true
+
+    error_requests:
+      sample_rate: 1.0   # 100%
+      include_stack_trace: true
+
+    policy_decisions:
+      # Log all policy evaluation results
+      sample_rate: 0.05  # 5%
+      description: "Sample policy decisions for auditing"
+
+  workers:
+    # Worker pool application logs
+    success_requests:
+      sample_rate: 0.01  # 1%
+
+    error_requests:
+      sample_rate: 1.0   # 100%
+      capture_snapshot: true  # Save to GCS for replay
+
+    long_running:
+      # Requests > 5 seconds
+      threshold_ms: 5000
+      sample_rate: 0.1   # 10%
+      description: "Sample slow requests for performance analysis"
+
+# Budget Thresholds
+budgets:
+  total_observability:
+    # Maximum spend on observability as % of infrastructure
+    max_percentage: 7.0
+    base_infrastructure_monthly: 10000  # $10k/month baseline
+    max_monthly_spend: 700              # $700/month
+
+  cloud_logging:
+    # Cloud Logging ingestion and storage
+    max_monthly_gb: 500                 # 500 GB/month
+    max_monthly_cost: 250               # $250/month (~$0.50/GB)
+    alert_threshold_percentage: 70      # Alert at 70% usage
+
+  bigquery:
+    # BigQuery storage and queries
+    max_monthly_tb: 1                   # 1 TB active storage
+    max_monthly_cost: 300               # $300/month
+    alert_threshold_percentage: 70      # Alert at 70% usage
+
+  cloud_trace:
+    # Cloud Trace span ingestion
+    max_monthly_spans: 100000000        # 100M spans/month
+    max_monthly_cost: 100               # $100/month
+    alert_threshold_percentage: 70      # Alert at 70% usage
+
+  cloud_monitoring:
+    # Custom metrics and monitoring
+    max_monthly_cost: 50                # $50/month
+    alert_threshold_percentage: 80      # Alert at 80% usage
+
+# Auto-Adjustment Rules
+# Triggered when budget thresholds exceeded
+auto_adjustment:
+  enabled: true
+
+  triggers:
+    - name: "cloud_logging_70_percent"
+      condition: "cloud_logging.spend >= 70% of budget"
+      action:
+        - reduce_sampling:
+            success_requests: 0.005  # Drop to 0.5%
+            router_policy_decisions: 0.01  # Drop to 1%
+        - notify:
+            channels: ["slack", "email"]
+            severity: "warning"
+
+    - name: "cloud_logging_90_percent"
+      condition: "cloud_logging.spend >= 90% of budget"
+      action:
+        - reduce_sampling:
+            success_requests: 0.001  # Drop to 0.1%
+            router_policy_decisions: 0.005  # Drop to 0.5%
+        - notify:
+            channels: ["slack", "email", "pagerduty"]
+            severity: "critical"
+
+    - name: "bigquery_70_percent"
+      condition: "bigquery.spend >= 70% of budget"
+      action:
+        - reduce_query_frequency:
+            hourly_aggregates: "2_hours"  # Run every 2 hours instead of 1
+        - notify:
+            channels: ["slack", "email"]
+            severity: "warning"
+
+    - name: "bigquery_90_percent"
+      condition: "bigquery.spend >= 90% of budget"
+      action:
+        - reduce_query_frequency:
+            hourly_aggregates: "4_hours"  # Run every 4 hours
+        - pause_dashboards:
+            auto_refresh: false
+        - notify:
+            channels: ["slack", "email", "pagerduty"]
+            severity: "critical"
+
+# Cost Monitoring
+monitoring:
+  check_interval_minutes: 15
+
+  metrics:
+    - name: "observability_spend_percentage"
+      query: "observability_total_cost / infrastructure_total_cost * 100"
+      threshold: 7.0
+      alert_on_exceed: true
+
+    - name: "cloud_logging_ingestion_gb_per_day"
+      query: "sum(log_bytes_ingested) / 1e9"
+      threshold: 16.67  # 500 GB / 30 days
+      alert_on_exceed: true
+
+    - name: "bigquery_storage_tb"
+      query: "sum(bigquery_storage_bytes) / 1e12"
+      threshold: 1.0
+      alert_on_exceed: true
+
+    - name: "cost_per_million_requests"
+      query: "observability_total_cost / (request_count / 1e6)"
+      threshold: 10.0  # $10 per million requests
+      alert_on_exceed: true
+
+# Alert Routing
+alerts:
+  channels:
+    slack:
+      webhook_url_secret: "projects/PROJECT_ID/secrets/slack-observability-webhook"
+      channel: "#apx-observability-alerts"
+
+    email:
+      recipients:
+        - "ops-team@example.com"
+        - "platform-team@example.com"
+
+    pagerduty:
+      integration_key_secret: "projects/PROJECT_ID/secrets/pagerduty-integration-key"
+      severity_mapping:
+        warning: "low"
+        critical: "high"
+
+# Retention Policies
+retention:
+  cloud_logging:
+    default: 30  # days
+    errors: 90   # days
+    audit_logs: 365  # days (compliance requirement)
+
+  bigquery:
+    raw_requests: 30      # days
+    hourly_aggregates: 730  # days (2 years)
+    daily_aggregates: 2555  # days (7 years)
+
+  cloud_trace:
+    traces: 30  # days
+
+  error_snapshots:
+    gcs_bucket: "apx-error-snapshots"
+    retention_days: 90
+
+# Implementation Notes
+notes:
+  - "Envoy sampling configured via access_log filters in edge/envoy/envoy.yaml"
+  - "Application-level sampling uses structured logging libraries (zerolog, slog)"
+  - "Budget enforcement via Cloud Functions triggered by Billing exports to BigQuery"
+  - "Auto-adjustment updates runtime config in Firestore, picked up by services on next config refresh"
+  - "Emergency override: Set DISABLE_SAMPLING_ADJUSTMENT=true in Cloud Run env vars"
