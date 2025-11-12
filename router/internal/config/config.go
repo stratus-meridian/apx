@@ -11,6 +11,7 @@ type Config struct {
 	// Server
 	Port        int
 	Environment string // dev, staging, production
+	PublicURL   string // Public-facing URL for status/stream endpoints
 
 	// GCP Project
 	ProjectID string
@@ -46,6 +47,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Port:        getEnvAsInt("PORT", 8081),
 		Environment: getEnv("ENVIRONMENT", "dev"),
+		PublicURL:   getEnv("PUBLIC_URL", ""),
 
 		ProjectID: getEnv("GCP_PROJECT_ID", ""),
 		Region:    getEnv("GCP_REGION", "us-central1"),

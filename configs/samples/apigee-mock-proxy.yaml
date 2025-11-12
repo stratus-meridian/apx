@@ -1,0 +1,130 @@
+# Apigee Mock Target Proxy Configuration
+# Proxies https://mocktarget.apigee.net/ through APX
+
+---
+apiVersion: apx/v1
+kind: Product
+metadata:
+  name: apigee-mock
+  labels:
+    team: platform
+    environment: test
+spec:
+  description: "Proxy for Apigee mock target backend (https://mocktarget.apigee.net/)"
+
+  plans:
+    - name: test
+      rateLimit:
+        rps: 100
+        burst: 200
+        window: 1s
+      quota:
+        daily: 10000
+      concurrency: 50
+      isolation: shared
+      residency: GLOBAL
+      observability:
+        logSampleRate: 1.0    # Log everything for testing
+        traceSampleRate: 1.0   # Trace everything for testing
+
+  authentication:
+    required: false  # No auth required for testing
+
+---
+apiVersion: apx/v1
+kind: PolicyBundle
+metadata:
+  name: pb-apigee-mock-v1
+  version: 1.0.0
+  compat: backward
+  labels:
+    product: apigee-mock
+    environment: test
+spec:
+  auth:
+    required: false  # No authentication for testing
+
+  authorization:
+    rego: |
+      package apx.authz
+
+      import future.keywords.if
+
+      # Allow all requests for testing
+      default allow := true
+
+  quotas:
+    perTenant:
+      window: 60s
+      limit: 1000
+
+  rateLimit:
+    algorithm: sliding-window
+    redis:
+      enabled: false  # Disable for simple testing
+
+  transforms: []
+
+  observability:
+    sampleRate: 1.0  # 100% sampling for testing
+    piiSafe: true
+    metrics:
+      enabled: true
+      labels:
+        - tenant_tier
+        - route
+        - status_code
+    tracing:
+      enabled: true
+      sampleRate: 1.0
+
+  security:
+    requestSizeLimit: 10MB
+    validateContentType: false
+    csrfProtection: false
+
+  cache:
+    enabled: false  # Disable caching for testing
+
+---
+apiVersion: apx/v1
+kind: Route
+metadata:
+  name: apigee-mock-all
+  labels:
+    product: apigee-mock
+    version: v1
+spec:
+  match:
+    # Match all paths - will proxy to mocktarget.apigee.net
+    path: /mock/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+
+  backend:
+    # Backend target configuration
+    upstream: https://mocktarget.apigee.net
+    pool: apigee-mock
+    timeoutMs: 30000
+    retries:
+      maxAttempts: 2
+      retryOn: [5xx, timeout]
+    loadBalancing: round-robin
+
+  policyBundleRef: pb-apigee-mock-v1@1.0.0
+
+  circuitBreaker:
+    enabled: true
+    errorThreshold: 10
+    timeout: 60s
+
+  cors:
+    enabled: true
+    allowOrigins:
+      - "*"
+    allowMethods: [GET, POST, PUT, DELETE, PATCH, OPTIONS]
+    allowHeaders:
+      - Authorization
+      - Content-Type
+      - X-Request-ID
+      - X-Tenant-ID
+    maxAge: 24h
