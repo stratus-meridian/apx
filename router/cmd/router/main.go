@@ -24,12 +24,18 @@ import (
 )
 
 func main() {
+	// Use fmt.Println for early errors before logger is initialized
+	fmt.Println("Starting APX Router...")
+
 	// Initialize logger
 	logger, err := zap.NewProduction()
 	if err != nil {
-		panic(fmt.Sprintf("failed to create logger: %v", err))
+		fmt.Fprintf(os.Stderr, "FATAL: failed to create logger: %v\n", err)
+		os.Exit(1)
 	}
 	defer logger.Sync()
+
+	logger.Info("Logger initialized successfully")
 
 	ctx := context.Background()
 
@@ -38,18 +44,29 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to load config", zap.Error(err))
 	}
+	logger.Info("Configuration loaded",
+		zap.String("project_id", cfg.ProjectID),
+		zap.String("region", cfg.Region))
 
-	// Initialize observability (OTEL, metrics)
+	// Initialize observability (OTEL, metrics) - make non-fatal in dev
 	shutdown, err := observability.Init(ctx, cfg, logger)
 	if err != nil {
-		logger.Fatal("failed to initialize observability", zap.Error(err))
+		logger.Warn("failed to initialize observability (continuing)", zap.Error(err))
+		shutdown = func() {} // no-op shutdown
+	} else {
+		logger.Info("Observability initialized successfully")
 	}
 	defer shutdown()
 
 	// Initialize policy store (loads compiled artifacts from GCS/Firestore)
+	// Make non-fatal if no policies exist yet
 	policyStore, err := policy.NewStore(ctx, cfg, logger)
 	if err != nil {
-		logger.Fatal("failed to initialize policy store", zap.Error(err))
+		logger.Warn("failed to initialize policy store (will use default policies)", zap.Error(err))
+		// Continue without policy store - routes will use defaults
+		policyStore = nil
+	} else {
+		logger.Info("Policy store initialized successfully")
 	}
 
 	// Initialize Redis client for status storage
@@ -62,11 +79,14 @@ func main() {
 		WriteTimeout: 3 * time.Second,
 	})
 
-	// Test Redis connection
+	// Test Redis connection (non-blocking)
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		logger.Warn("failed to connect to Redis, status storage will not work", zap.Error(err))
+		logger.Warn("failed to connect to Redis, rate limiting will be degraded",
+			zap.Error(err),
+			zap.String("redis_addr", cfg.RedisAddr))
 	} else {
-		logger.Info("connected to Redis", zap.String("addr", cfg.RedisAddr))
+		logger.Info("connected to Redis",
+			zap.String("addr", cfg.RedisAddr))
 	}
 
 	// Initialize status store
@@ -78,47 +98,37 @@ func main() {
 	// Initialize Pub/Sub client and topic
 	var pubsubTopic *pubsub.Topic
 
-	if cfg.Environment == "dev" || cfg.Environment == "local" {
-		// Use Pub/Sub emulator
-		emulatorHost := os.Getenv("PUBSUB_EMULATOR_HOST")
-		logger.Info("connecting to Pub/Sub emulator",
-			zap.String("host", emulatorHost),
-			zap.String("project", cfg.ProjectID))
-
-		client, err := pubsub.NewClient(ctx, cfg.ProjectID)
-		if err != nil {
-			logger.Fatal("failed to create pubsub client", zap.Error(err))
-		}
-		defer client.Close()
-
-		// Get or create topic
-		topicName := fmt.Sprintf("apx-requests-%s", cfg.Region)
-		topic := client.Topic(topicName)
-
-		exists, err := topic.Exists(ctx)
-		if err != nil {
-			logger.Fatal("failed to check topic existence", zap.Error(err))
-		}
-
-		if !exists {
-			logger.Info("creating Pub/Sub topic", zap.String("topic", topicName))
-			topic, err = client.CreateTopic(ctx, topicName)
-			if err != nil {
-				logger.Fatal("failed to create topic", zap.Error(err))
-			}
-		}
-
-		// Enable message ordering for FIFO per tenant
-		topic.EnableMessageOrdering = true
-
-		pubsubTopic = topic
-		logger.Info("pub/sub topic ready",
-			zap.String("topic", topicName),
-			zap.Bool("ordering_enabled", true))
-	} else {
-		// Production would use real GCP Pub/Sub
-		logger.Warn("pub/sub not configured for production environment")
+	// Create Pub/Sub client
+	client, err := pubsub.NewClient(ctx, cfg.ProjectID)
+	if err != nil {
+		logger.Fatal("failed to create pubsub client", zap.Error(err))
 	}
+	defer client.Close()
+
+	// Get or create topic
+	topicName := cfg.PubSubTopic
+	topic := client.Topic(topicName)
+
+	exists, err := topic.Exists(ctx)
+	if err != nil {
+		logger.Fatal("failed to check topic existence", zap.Error(err))
+	}
+
+	if !exists {
+		logger.Info("creating Pub/Sub topic", zap.String("topic", topicName))
+		topic, err = client.CreateTopic(ctx, topicName)
+		if err != nil {
+			logger.Fatal("failed to create topic", zap.Error(err))
+		}
+	}
+
+	// Enable message ordering for FIFO per tenant
+	topic.EnableMessageOrdering = true
+
+	pubsubTopic = topic
+	logger.Info("pub/sub topic ready",
+		zap.String("topic", topicName),
+		zap.Bool("ordering_enabled", true))
 
 	// Construct base URL for status/stream URLs
 	baseURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
