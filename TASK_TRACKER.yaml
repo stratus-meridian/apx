@@ -706,9 +706,82 @@ daily_logs:
           - "tests/security/tenant_isolation_test.sh"
           - "tests/security/tenant_negative_test.sh"
           - "docs/security/tenant-isolation.md"
+      - time: "19:36:00"
+        agent: "agent-backend-1"
+        task: "V-001"
+        action: "Completed smoke test creation and environment setup"
+        details: |
+          Task V-001 (Request Pathing Smoke Test):
+          - Created comprehensive smoke test script (tests/smoke/request_pathing_test.sh)
+          - Set up infrastructure services (Redis, Pub/Sub emulator)
+          - Created observability configuration files (OTEL, Prometheus, Grafana)
+          - Created router Dockerfile for multi-stage build
+          - Executed test: 2/6 passing, 4 blocked on implementation gaps
+          - Documented 4 blockers preventing end-to-end flow
+          - Status: BLOCKED on missing Go dependencies and incomplete router/worker
+        artifacts:
+          - "tests/smoke/request_pathing_test.sh"
+          - "observability/otel/otel-collector-config.yaml"
+          - "observability/prometheus/prometheus.yml"
+          - "observability/grafana/datasources/prometheus.yml"
+          - "observability/grafana/dashboards/dashboard.yml"
+          - "router/Dockerfile"
+        test_results:
+          passed: ["Redis healthy", "Pub/Sub emulator running"]
+          failed: ["Firestore (needs Java 21)", "Pub/Sub topic creation (gcloud not configured)"]
+          blocked: ["Router not built", "Edge not built", "Worker not implemented"]
 
   # Validation & Hardening Tasks
   # --------------------------------------------------------------------------
+
+  V-001:
+    name: "Smoke Check - Request Pathing"
+    phase: "Validation-Phase1"
+    priority: "P0"
+    status: "BLOCKED"
+    assigned_to: "agent-backend-1"
+    dependencies: []
+    estimated_hours: 2
+    started_at: "2025-11-11T19:30:00Z"
+    completed_at: null
+    artifacts:
+      - "tests/smoke/request_pathing_test.sh"
+      - "observability/otel/otel-collector-config.yaml"
+      - "observability/prometheus/prometheus.yml"
+      - "observability/grafana/datasources/prometheus.yml"
+      - "router/Dockerfile"
+    notes:
+      - "Infrastructure services (Redis, Pub/Sub) running successfully"
+      - "Firestore emulator blocked on Java 21 requirement"
+      - "Router and Edge services blocked on missing go.sum and incomplete implementation"
+      - "Router needs: pkg/observability implementation, routes.NewMatcher signature fix"
+      - "Worker service not yet implemented"
+      - "Smoke test created and documents current state comprehensively"
+      - "2 of 6 tests passing (infrastructure checks)"
+    blockers:
+      - "Router build fails - missing go.sum file (need Go 1.21+ to generate)"
+      - "Firestore emulator requires Java 21 in container"
+      - "Router missing pkg/observability implementation"
+      - "Worker service not implemented"
+    acceptance_criteria:
+      - checked: false
+        text: "Request returns 202 Accepted"
+        status: "blocked - edge/router not running"
+      - checked: false
+        text: "Request ID generated and returned"
+        status: "blocked - edge/router not running"
+      - checked: false
+        text: "Message published to Pub/Sub"
+        status: "blocked - router not publishing"
+      - checked: false
+        text: "Worker receives and processes message"
+        status: "blocked - worker not implemented"
+      - checked: false
+        text: "Status endpoint returns result"
+        status: "blocked - not implemented"
+      - checked: false
+        text: "End-to-end latency < 5 seconds (dev environment)"
+        status: "not measured - flow not complete"
 
   V-008:
     name: "Tenant Isolation Enforcement"
@@ -749,7 +822,39 @@ daily_logs:
         text: "Negative tests fail as expected"
 
 # Blockers (active blockers tracked here)
-blockers: []
+blockers:
+  - id: "V-001-B1"
+    task: "V-001"
+    description: "Router build fails - missing go.sum file"
+    severity: "high"
+    created_at: "2025-11-11T19:31:00Z"
+    assigned_to: "agent-backend-1"
+    status: "open"
+    resolution: "Generate go.sum with Docker container running Go 1.21+, or install Go locally"
+  - id: "V-001-B2"
+    task: "V-001"
+    description: "Firestore emulator requires Java 21"
+    severity: "medium"
+    created_at: "2025-11-11T19:34:00Z"
+    assigned_to: "agent-infrastructure-1"
+    status: "open"
+    resolution: "Update docker-compose.yml to use proper Firestore emulator image with Java 21"
+  - id: "V-001-B3"
+    task: "V-001"
+    description: "Router missing pkg/observability implementation"
+    severity: "high"
+    created_at: "2025-11-11T19:35:00Z"
+    assigned_to: "agent-backend-1"
+    status: "open"
+    resolution: "Implement observability package with OTEL initialization (see router/cmd/router/main.go import)"
+  - id: "V-001-B4"
+    task: "V-001"
+    description: "Worker service not implemented"
+    severity: "high"
+    created_at: "2025-11-11T19:35:00Z"
+    assigned_to: "agent-backend-2"
+    status: "open"
+    resolution: "Implement worker service per M1-T2-001 specifications"
 
 # Metrics
 metrics:
