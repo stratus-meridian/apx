@@ -1,0 +1,248 @@
+# Route CRD Schema
+# Defines routing rules and backend mappings
+
+apiVersion: apx/v1
+kind: Schema
+metadata:
+  name: Route
+  version: v1
+spec:
+  description: "Route definition mapping requests to backends with policy enforcement"
+
+  schema:
+    type: object
+    required: [apiVersion, kind, metadata, spec]
+
+    properties:
+      apiVersion:
+        type: string
+        enum: [apx/v1]
+
+      kind:
+        type: string
+        enum: [Route]
+
+      metadata:
+        type: object
+        required: [name]
+        properties:
+          name:
+            type: string
+            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+
+          labels:
+            type: object
+            additionalProperties:
+              type: string
+
+      spec:
+        type: object
+        required: [match, backend]
+        properties:
+
+          match:
+            type: object
+            description: "Request matching criteria"
+            properties:
+              host:
+                type: string
+                description: "Hostname to match (supports wildcards: *.example.com)"
+
+              path:
+                type: string
+                description: "Path prefix or pattern (supports ** for glob)"
+                example: "/v1/payments/**"
+
+              methods:
+                type: array
+                items:
+                  type: string
+                  enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
+                default: [GET, POST]
+
+              headers:
+                type: object
+                additionalProperties:
+                  type: string
+                description: "Required headers (key-value pairs)"
+
+              queryParams:
+                type: object
+                additionalProperties:
+                  type: string
+                description: "Required query parameters"
+
+          backend:
+            type: object
+            required: [pool]
+            description: "Backend routing configuration"
+            properties:
+              pool:
+                type: string
+                description: "Worker pool name (e.g., payments-cpu, embeddings-gpu)"
+
+              timeoutMs:
+                type: integer
+                minimum: 100
+                maximum: 600000
+                default: 30000
+                description: "Request timeout in milliseconds"
+
+              retries:
+                type: object
+                properties:
+                  maxAttempts:
+                    type: integer
+                    minimum: 0
+                    maximum: 5
+                    default: 0
+
+                  retryOn:
+                    type: array
+                    items:
+                      type: string
+                      enum: [5xx, timeout, connection-failure]
+                    default: [5xx, timeout]
+
+              loadBalancing:
+                type: string
+                enum: [round-robin, least-connections, weighted, consistent-hash]
+                default: round-robin
+
+          policyBundleRef:
+            type: string
+            pattern: "^[a-z0-9-]+@[0-9]+\\.[0-9]+\\.[0-9]+$"
+            description: "PolicyBundle reference with version (e.g., pb-pay-v1@1.2.0)"
+
+          canary:
+            type: object
+            description: "Canary routing configuration"
+            properties:
+              enabled:
+                type: boolean
+                default: false
+
+              weight:
+                type: integer
+                minimum: 1
+                maximum: 100
+                description: "Percentage of traffic to canary (1-100)"
+
+              policyBundleRef:
+                type: string
+                description: "Alternative policy bundle for canary traffic"
+
+          circuitBreaker:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: true
+
+              errorThreshold:
+                type: integer
+                minimum: 1
+                maximum: 100
+                default: 50
+                description: "Open circuit after this many consecutive errors"
+
+              timeout:
+                type: string
+                pattern: "^[0-9]+(s|m)$"
+                default: "30s"
+                description: "Time to wait before trying again"
+
+          cors:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+
+              allowOrigins:
+                type: array
+                items:
+                  type: string
+                description: "Allowed origins (e.g., ['https://app.example.com'])"
+
+              allowMethods:
+                type: array
+                items:
+                  type: string
+                default: [GET, POST]
+
+              allowHeaders:
+                type: array
+                items:
+                  type: string
+                default: [Authorization, Content-Type]
+
+              maxAge:
+                type: string
+                default: "24h"
+
+          transforms:
+            type: array
+            items:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [header-inject, header-remove, path-rewrite, body-transform]
+
+                config:
+                  type: object
+                  description: "Transform-specific configuration"
+
+examples:
+  - name: payments-route
+    value:
+      apiVersion: apx/v1
+      kind: Route
+      metadata:
+        name: pay-v1
+        labels:
+          product: payments
+          version: v1
+      spec:
+        match:
+          host: api.example.com
+          path: /v1/payments/**
+          methods: [POST, GET]
+        backend:
+          pool: payments-cpu
+          timeoutMs: 30000
+          retries:
+            maxAttempts: 2
+            retryOn: [5xx, timeout]
+          loadBalancing: consistent-hash
+        policyBundleRef: pb-pay-v1@1.2.0
+        circuitBreaker:
+          enabled: true
+          errorThreshold: 10
+          timeout: 60s
+        cors:
+          enabled: true
+          allowOrigins: ["https://dashboard.example.com"]
+          allowMethods: [GET, POST, PUT]
+          allowHeaders: [Authorization, Content-Type, X-Request-ID]
+
+  - name: canary-route
+    value:
+      apiVersion: apx/v1
+      kind: Route
+      metadata:
+        name: pay-v2-canary
+      spec:
+        match:
+          host: api.example.com
+          path: /v1/payments/**
+          methods: [POST]
+        backend:
+          pool: payments-cpu-v2
+          timeoutMs: 30000
+        policyBundleRef: pb-pay-v1@1.2.0
+        canary:
+          enabled: true
+          weight: 5
+          policyBundleRef: pb-pay-v1@1.3.0

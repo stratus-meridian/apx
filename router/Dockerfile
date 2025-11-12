@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for APX Router Service
 # Stage 1: Build the Go binary
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
@@ -14,8 +14,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o router ./cmd/router
+# Tidy dependencies and build
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o router ./cmd/router
 
 # Stage 2: Create minimal runtime image
 FROM alpine:latest

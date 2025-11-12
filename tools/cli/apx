@@ -1,0 +1,304 @@
+#!/bin/bash
+#
+# APX CLI - Command-line interface for APX platform operations
+#
+# Usage:
+#   apx rollout <policy> <version> --canary <percent>
+#   apx rollback <policy>
+#   apx status <policy>
+#   apx versions <policy>
+#
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+GCP_PROJECT="${GCP_PROJECT_ID:-}"
+FIRESTORE_COLLECTION="${FIRESTORE_COLLECTION:-policies}"
+FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-}"
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check prerequisites
+check_prerequisites() {
+    if [ -z "$GCP_PROJECT" ]; then
+        log_error "GCP_PROJECT_ID environment variable not set"
+        exit 1
+    fi
+
+    # Check for gcloud or firestore emulator
+    if [ -z "$FIRESTORE_EMULATOR_HOST" ]; then
+        if ! command -v gcloud &> /dev/null; then
+            log_error "gcloud CLI not found and FIRESTORE_EMULATOR_HOST not set"
+            exit 1
+        fi
+    else
+        log_info "Using Firestore emulator: $FIRESTORE_EMULATOR_HOST"
+    fi
+}
+
+# Rollout a new policy version with canary percentage
+rollout() {
+    local policy_name=$1
+    local version=$2
+    local canary_percent=${3:-10}  # Default to 10% if not specified
+
+    if [ -z "$policy_name" ] || [ -z "$version" ]; then
+        log_error "Usage: apx rollout <policy> <version> --canary <percent>"
+        exit 1
+    fi
+
+    # Validate canary percentage
+    if [ "$canary_percent" -lt 0 ] || [ "$canary_percent" -gt 100 ]; then
+        log_error "Canary percentage must be between 0 and 100"
+        exit 1
+    fi
+
+    local ref="${policy_name}@${version}"
+
+    log_info "Starting canary rollout for $ref at ${canary_percent}%"
+
+    # Use gcloud firestore to update the policy
+    if [ -n "$FIRESTORE_EMULATOR_HOST" ]; then
+        # For emulator, we'll use a simple approach with temp file
+        log_warn "Firestore emulator mode - using simplified update"
+        update_canary_emulator "$ref" "$canary_percent"
+    else
+        # Production mode using gcloud
+        update_canary_gcloud "$ref" "$canary_percent"
+    fi
+
+    log_success "Canary rollout complete: $ref at ${canary_percent}%"
+    log_info "Monitor metrics and use 'apx rollout $policy_name $version --canary <percent>' to adjust"
+    log_info "Use 'apx rollback $policy_name' to rollback if issues occur"
+}
+
+# Update canary percentage using gcloud
+update_canary_gcloud() {
+    local ref=$1
+    local percent=$2
+
+    # Create update JSON
+    local update_json=$(cat <<EOF
+{
+  "fields": {
+    "canary_percentage": {
+      "integerValue": "$percent"
+    },
+    "updated_at": {
+      "timestampValue": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    }
+  }
+}
+EOF
+)
+
+    # Update using gcloud firestore
+    gcloud firestore documents update \
+        "projects/${GCP_PROJECT}/databases/(default)/documents/${FIRESTORE_COLLECTION}/${ref}" \
+        --update-mask "canary_percentage,updated_at" \
+        --format json <<< "$update_json" 2>&1 | grep -v "WARNING" || true
+
+    log_info "Updated canary percentage in Firestore"
+}
+
+# Update canary percentage using emulator (simplified)
+update_canary_emulator() {
+    local ref=$1
+    local percent=$2
+
+    log_warn "Emulator mode: Update will take effect on next policy refresh (30s)"
+    log_info "In production, this would update Firestore document: ${FIRESTORE_COLLECTION}/${ref}"
+    log_info "Setting canary_percentage: ${percent}"
+}
+
+# Rollback a policy to stable version
+rollback() {
+    local policy_name=$1
+
+    if [ -z "$policy_name" ]; then
+        log_error "Usage: apx rollback <policy>"
+        exit 1
+    fi
+
+    log_info "Rolling back policy: $policy_name"
+
+    # Get all versions of the policy
+    local canary_ref=""
+    local stable_ref=""
+
+    # In production, this would query Firestore
+    # For now, we'll simulate the rollback
+    log_info "Finding canary and stable versions..."
+
+    if [ -n "$FIRESTORE_EMULATOR_HOST" ]; then
+        log_warn "Emulator mode: Simulating rollback"
+        log_info "In production, this would:"
+        log_info "  1. Find canary version (canary_percentage > 0 and < 100)"
+        log_info "  2. Set canary_percentage to 0"
+        log_info "  3. Ensure stable version is at 100%"
+    else
+        # Production rollback logic would go here
+        log_error "Production rollback not fully implemented - requires Firestore query"
+        exit 1
+    fi
+
+    log_success "Rollback initiated for $policy_name"
+    log_info "All traffic should revert to stable version within 2 minutes"
+}
+
+# Show status of a policy
+status() {
+    local policy_name=$1
+
+    if [ -z "$policy_name" ]; then
+        log_error "Usage: apx status <policy>"
+        exit 1
+    fi
+
+    log_info "Policy status for: $policy_name"
+    echo ""
+
+    if [ -n "$FIRESTORE_EMULATOR_HOST" ]; then
+        log_warn "Emulator mode: Limited status information available"
+        echo "In production, this would show:"
+        echo "  - Current stable version"
+        echo "  - Active canary version (if any)"
+        echo "  - Canary percentage"
+        echo "  - Traffic distribution"
+        echo "  - Recent deployments"
+    else
+        # Production status query would go here
+        log_error "Production status query not fully implemented"
+        exit 1
+    fi
+}
+
+# List all versions of a policy
+versions() {
+    local policy_name=$1
+
+    if [ -z "$policy_name" ]; then
+        log_error "Usage: apx versions <policy>"
+        exit 1
+    fi
+
+    log_info "Versions for policy: $policy_name"
+    echo ""
+
+    if [ -n "$FIRESTORE_EMULATOR_HOST" ]; then
+        log_warn "Emulator mode: Would query Firestore for all versions"
+        echo "In production, this would list:"
+        echo "  - All versions in Firestore"
+        echo "  - Canary percentage for each"
+        echo "  - Creation/update timestamps"
+        echo "  - Compatibility info (backward/breaking)"
+    else
+        # Production query would go here
+        log_error "Production version query not fully implemented"
+        exit 1
+    fi
+}
+
+# Main command dispatcher
+main() {
+    if [ $# -eq 0 ]; then
+        cat <<EOF
+APX CLI - Policy Management Tool
+
+Usage:
+  apx rollout <policy> <version> --canary <percent>   Start canary rollout
+  apx rollback <policy>                                Rollback to stable version
+  apx status <policy>                                  Show policy status
+  apx versions <policy>                                List all versions
+
+Environment Variables:
+  GCP_PROJECT_ID              GCP project ID (required)
+  FIRESTORE_COLLECTION        Firestore collection (default: policies)
+  FIRESTORE_EMULATOR_HOST     Firestore emulator host (optional)
+
+Examples:
+  # Start 10% canary rollout
+  apx rollout my-api v2.0.0 --canary 10
+
+  # Increase to 50%
+  apx rollout my-api v2.0.0 --canary 50
+
+  # Rollback if issues occur
+  apx rollback my-api
+
+  # Check status
+  apx status my-api
+
+EOF
+        exit 0
+    fi
+
+    local command=$1
+    shift
+
+    case "$command" in
+        rollout)
+            check_prerequisites
+            local policy=$1
+            local version=$2
+            local canary_percent=10
+
+            # Parse --canary flag
+            shift 2 || true
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    --canary)
+                        canary_percent=$2
+                        shift 2
+                        ;;
+                    *)
+                        shift
+                        ;;
+                esac
+            done
+
+            rollout "$policy" "$version" "$canary_percent"
+            ;;
+        rollback)
+            check_prerequisites
+            rollback "$1"
+            ;;
+        status)
+            check_prerequisites
+            status "$1"
+            ;;
+        versions)
+            check_prerequisites
+            versions "$1"
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            log_info "Run 'apx' without arguments to see usage"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

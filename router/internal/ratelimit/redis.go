@@ -6,73 +6,125 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
-// RedisRateLimiter implements tenant-isolated rate limiting using Redis
-type RedisRateLimiter struct {
+// RedisLimiter implements token bucket rate limiting using Redis
+type RedisLimiter struct {
 	client *redis.Client
+	logger *zap.Logger
 }
 
-// NewRedisRateLimiter creates a new Redis-based rate limiter
-func NewRedisRateLimiter(client *redis.Client) *RedisRateLimiter {
-	return &RedisRateLimiter{
+// NewRedisLimiter creates a new Redis-based rate limiter
+func NewRedisLimiter(client *redis.Client, logger *zap.Logger) *RedisLimiter {
+	return &RedisLimiter{
 		client: client,
+		logger: logger,
 	}
 }
 
-// RateLimitKey generates a tenant-isolated Redis key
-// Pattern: apx:rl:{tenant_id}:{resource}
-// This ensures complete keyspace isolation between tenants
-func RateLimitKey(tenantID, resource string) string {
-	// CRITICAL: Tenant ID MUST be part of key to prevent cross-tenant pollution
-	return fmt.Sprintf("apx:rl:%s:%s", tenantID, resource)
+// RateLimit represents rate limit configuration for a tier
+type RateLimit struct {
+	Capacity   int     // Max tokens (burst capacity)
+	RefillRate float64 // Tokens per second (sustained rate)
 }
 
-// CheckRateLimit checks if a tenant has exceeded their rate limit
-// Returns nil if under limit, error if exceeded
-func (r *RedisRateLimiter) CheckRateLimit(ctx context.Context, tenantID string, resource string, limit int, window time.Duration) error {
+// Allow checks if request is allowed based on rate limit
+// Uses token bucket algorithm with Redis for atomic operations
+func (rl *RedisLimiter) Allow(ctx context.Context, tenantID, tier string) (bool, error) {
 	if tenantID == "" {
-		return fmt.Errorf("tenant_id is required for rate limiting")
+		rl.logger.Warn("rate limit check without tenant ID")
+		return true, nil // Fail open
 	}
 
-	key := RateLimitKey(tenantID, resource)
+	// Get rate limit config for tier
+	limit := rl.getLimitForTier(tier)
 
-	// Use Redis INCR for atomic counter increment
-	count, err := r.client.Incr(ctx, key).Result()
+	// Redis key for tenant's token bucket
+	key := fmt.Sprintf("apx:rl:%s:tokens", tenantID)
+
+	// Lua script for atomic token bucket operations
+	// This ensures thread-safe token bucket updates across distributed router instances
+	script := `
+		local key = KEYS[1]
+		local capacity = tonumber(ARGV[1])
+		local rate = tonumber(ARGV[2])
+		local now = tonumber(ARGV[3])
+		local requested = tonumber(ARGV[4])
+
+		local tokens_key = key
+		local timestamp_key = key .. ":ts"
+
+		local last_tokens = tonumber(redis.call("get", tokens_key))
+		local last_time = tonumber(redis.call("get", timestamp_key))
+
+		if last_tokens == nil then
+			last_tokens = capacity
+		end
+
+		if last_time == nil then
+			last_time = now
+		end
+
+		local delta = math.max(0, now - last_time)
+		local new_tokens = math.min(capacity, last_tokens + (delta * rate))
+
+		if new_tokens < requested then
+			return 0  -- Rate limited
+		end
+
+		new_tokens = new_tokens - requested
+
+		redis.call("setex", tokens_key, 3600, new_tokens)
+		redis.call("setex", timestamp_key, 3600, now)
+
+		return 1  -- Allowed
+	`
+
+	result, err := rl.client.Eval(ctx, script, []string{key},
+		limit.Capacity, limit.RefillRate, time.Now().Unix(), 1).Result()
+
 	if err != nil {
-		return fmt.Errorf("failed to increment rate limit counter: %w", err)
+		rl.logger.Error("rate limit check failed", zap.Error(err))
+		// Fail open (allow request) on Redis errors to prevent outages
+		return true, err
 	}
 
-	// Set expiration on first increment
-	if count == 1 {
-		if err := r.client.Expire(ctx, key, window).Err(); err != nil {
-			return fmt.Errorf("failed to set expiration: %w", err)
-		}
+	allowed := result.(int64) == 1
+
+	if !allowed {
+		rl.logger.Warn("rate limit exceeded",
+			zap.String("tenant_id", tenantID),
+			zap.String("tier", tier),
+			zap.Int("capacity", limit.Capacity),
+			zap.Float64("rate", limit.RefillRate))
 	}
 
-	// Check if limit exceeded
-	if count > int64(limit) {
-		ttl, _ := r.client.TTL(ctx, key).Result()
-		return &RateLimitExceededError{
-			TenantID:  tenantID,
-			Resource:  resource,
-			Limit:     limit,
-			Current:   int(count),
-			RetryAfter: ttl,
-		}
-	}
-
-	return nil
+	return allowed, nil
 }
 
-// GetCurrentUsage returns current rate limit usage for a tenant
-func (r *RedisRateLimiter) GetCurrentUsage(ctx context.Context, tenantID string, resource string) (int, error) {
+// getLimitForTier returns rate limit configuration for a given tier
+func (rl *RedisLimiter) getLimitForTier(tier string) RateLimit {
+	limits := map[string]RateLimit{
+		"free":       {Capacity: 10, RefillRate: 1.0},     // 10 req burst, 1/s sustained
+		"pro":        {Capacity: 100, RefillRate: 10.0},   // 100 req burst, 10/s sustained
+		"enterprise": {Capacity: 1000, RefillRate: 100.0}, // 1000 req burst, 100/s sustained
+	}
+
+	if limit, ok := limits[tier]; ok {
+		return limit
+	}
+	return limits["free"] // Default to free tier
+}
+
+// GetCurrentUsage returns current token count for a tenant
+func (rl *RedisLimiter) GetCurrentUsage(ctx context.Context, tenantID string) (float64, error) {
 	if tenantID == "" {
 		return 0, fmt.Errorf("tenant_id is required")
 	}
 
-	key := RateLimitKey(tenantID, resource)
-	count, err := r.client.Get(ctx, key).Int()
+	key := fmt.Sprintf("apx:rl:%s:tokens", tenantID)
+	tokens, err := rl.client.Get(ctx, key).Float64()
 	if err == redis.Nil {
 		return 0, nil
 	}
@@ -80,57 +132,22 @@ func (r *RedisRateLimiter) GetCurrentUsage(ctx context.Context, tenantID string,
 		return 0, fmt.Errorf("failed to get rate limit usage: %w", err)
 	}
 
-	return count, nil
+	return tokens, nil
 }
 
-// ResetRateLimit resets the rate limit counter for a tenant (admin operation)
-func (r *RedisRateLimiter) ResetRateLimit(ctx context.Context, tenantID string, resource string) error {
+// ResetRateLimit resets the rate limit for a tenant (admin operation)
+func (rl *RedisLimiter) ResetRateLimit(ctx context.Context, tenantID string) error {
 	if tenantID == "" {
 		return fmt.Errorf("tenant_id is required")
 	}
 
-	key := RateLimitKey(tenantID, resource)
-	return r.client.Del(ctx, key).Err()
-}
+	key := fmt.Sprintf("apx:rl:%s:tokens", tenantID)
+	tsKey := fmt.Sprintf("apx:rl:%s:tokens:ts", tenantID)
 
-// ListTenantKeys returns all rate limit keys for a specific tenant (debugging only)
-// WARNING: This should only be used for debugging/admin purposes
-func (r *RedisRateLimiter) ListTenantKeys(ctx context.Context, tenantID string) ([]string, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("tenant_id is required")
-	}
+	pipe := rl.client.Pipeline()
+	pipe.Del(ctx, key)
+	pipe.Del(ctx, tsKey)
+	_, err := pipe.Exec(ctx)
 
-	pattern := fmt.Sprintf("apx:rl:%s:*", tenantID)
-
-	var keys []string
-	iter := r.client.Scan(ctx, 0, pattern, 100).Iterator()
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
-	}
-
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan keys: %w", err)
-	}
-
-	return keys, nil
-}
-
-// RateLimitExceededError represents a rate limit violation
-type RateLimitExceededError struct {
-	TenantID   string
-	Resource   string
-	Limit      int
-	Current    int
-	RetryAfter time.Duration
-}
-
-func (e *RateLimitExceededError) Error() string {
-	return fmt.Sprintf("rate limit exceeded for tenant %s on resource %s: %d/%d (retry after %v)",
-		e.TenantID, e.Resource, e.Current, e.Limit, e.RetryAfter)
-}
-
-// IsRateLimitError checks if an error is a rate limit error
-func IsRateLimitError(err error) bool {
-	_, ok := err.(*RateLimitExceededError)
-	return ok
+	return err
 }

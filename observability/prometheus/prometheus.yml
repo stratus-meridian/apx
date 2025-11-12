@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  # OpenTelemetry Collector
+  # OTEL Collector metrics
   - job_name: 'otel-collector'
     static_configs:
       - targets: ['otel-collector:8889']
@@ -11,18 +11,19 @@ scrape_configs:
           environment: 'dev'
           service: 'otel-collector'
 
-  # Router service (if it exposes Prometheus metrics)
+  # Router metrics (Prometheus endpoint)
   - job_name: 'router'
     static_configs:
       - targets: ['router:8081']
         labels:
           environment: 'dev'
           service: 'router'
+    metrics_path: '/metrics'
 
-  # Redis exporter (if available)
-  - job_name: 'redis'
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ['localhost:9090']
         labels:
           environment: 'dev'
-          service: 'redis'
+          service: 'prometheus'

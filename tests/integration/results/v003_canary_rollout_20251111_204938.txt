@@ -1,0 +1,18 @@
+V-003 Canary Rollout Test Results
+Generated: Tue Nov 11 20:49:38 CST 2025
+
+Tests Run:    10
+Tests Passed: 10
+Tests Failed: 0
+Pass Rate:    100%
+
+Acceptance Criteria Status:
+✓ Canary traffic split accurate within ±2%: PASS
+✓ In-flight requests use admitted policy version: PASS
+✓ Workers support N and N-1 versions simultaneously: PASS
+✓ Breaking policy triggers auto-rollback: PASS
+✓ Rollback completes in < 2 minutes: PASS
+✓ Zero dropped requests during rollout: PASS
+
+Failed Tests:
+

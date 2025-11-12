@@ -1,0 +1,191 @@
+# Docker Compose for local APX development
+# Includes: Edge (Envoy), Router (Go), Redis, Pub/Sub emulator, Firestore emulator
+
+version: '3.9'
+
+services:
+  # Edge Gateway (Envoy)
+  edge:
+    build:
+      context: .
+      dockerfile: ./edge/Dockerfile
+    ports:
+      - "8080:8080"  # Main HTTP port
+      - "9901:9901"  # Admin port
+    environment:
+      - ENVOY_LOG_LEVEL=info
+    depends_on:
+      - router
+      - redis
+    networks:
+      - apx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9901/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Router Service (Go)
+  router:
+    build:
+      context: ./router
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - ENVIRONMENT=dev
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      - POLICY_STORE_TYPE=firestore
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - REDIS_ADDR=redis:6379
+      - PUBSUB_EMULATOR_HOST=pubsub:8085
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - OTEL_INSECURE=true
+      - LOG_LEVEL=debug
+      - LOG_SAMPLE_RATE=1.0
+      - ENABLE_CANARY=true
+      - ENABLE_CACHE=true
+    depends_on:
+      - redis
+      - firestore
+      - pubsub
+      - otel-collector
+    networks:
+      - apx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Streaming Aggregator (SSE for long-running requests)
+  streaming-aggregator:
+    build:
+      context: .
+      dockerfile: ./workers/streaming_aggregator/Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - REDIS_ADDR=redis:6379
+      - LOG_LEVEL=debug
+    depends_on:
+      - redis
+    networks:
+      - apx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # CPU Worker Pool (processes async requests)
+  cpu-worker:
+    build:
+      context: .
+      dockerfile: ./workers/cpu-pool/Dockerfile
+    environment:
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      - REDIS_ADDR=redis:6379
+      - PUBSUB_EMULATOR_HOST=pubsub:8085
+    depends_on:
+      - redis
+      - pubsub
+    networks:
+      - apx-network
+
+  # Redis (for rate limiting + caching)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - apx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Firestore Emulator
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
+    ports:
+      - "8082:8080"
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=apx-dev
+    environment:
+      - FIRESTORE_PROJECT_ID=apx-dev
+    networks:
+      - apx-network
+
+  # Pub/Sub Emulator
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
+    ports:
+      - "8085:8085"
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=apx-dev
+    environment:
+      - PUBSUB_PROJECT_ID=apx-dev
+    networks:
+      - apx-network
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    ports:
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+      - "8889:8889"  # Prometheus metrics exporter
+      - "55679:55679"  # ZPages
+    volumes:
+      - ./observability/otel/otel-collector-config.yaml:/etc/otel/config.yaml
+    command: ["--config=/etc/otel/config.yaml"]
+    networks:
+      - apx-network
+
+  # Prometheus (metrics storage)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - apx-network
+
+  # Grafana (dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - apx-network
+
+networks:
+  apx-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:

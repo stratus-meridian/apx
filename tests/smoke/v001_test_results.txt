@@ -1,0 +1,100 @@
+
+==========================================
+  APX Request Pathing Smoke Test (V-001)
+==========================================
+
+[0;34m[INFO][0m Starting smoke tests...
+
+[0;34m[TEST][0m Infrastructure services health check
+[0;32m[PASS][0m Redis is healthy
+[0;32m[PASS][0m Pub/Sub emulator is running
+[0;31m[FAIL][0m Firestore container is not running
+
+[0;34m[TEST][0m Router service health check
+[0;32m[PASS][0m Router container is running
+[0;32m[PASS][0m Router health endpoint responded: {"status":"ok","service":"apx-router"}
+
+[0;34m[TEST][0m Edge gateway health check
+[1;33m[WARN][0m Edge gateway is not deployed (implementation incomplete)
+[0;34m[INFO][0m Edge gateway needs: Envoy config validation, router integration
+
+[0;34m[TEST][0m Pub/Sub direct publish/subscribe test
+[0;34m[INFO][0m Testing direct Pub/Sub operations with emulator...
+[0;31m[FAIL][0m Failed to create Pub/Sub topic
+
+[0;34m[TEST][0m End-to-end request flow test
+[1;33m[WARN][0m Edge not running, skipping end-to-end test
+[0;34m[INFO][0m Start edge with: docker-compose up -d edge
+
+[0;34m[TEST][0m Observability verification
+[1;33m[WARN][0m OTEL Collector is not running
+[0;34m[INFO][0m Start with: docker-compose up -d otel-collector
+[0;32m[PASS][0m Prometheus is running
+[0;32m[PASS][0m Grafana is running
+
+==========================================
+  Test Summary
+==========================================
+Tests Run:    6
+Tests Passed: \033[0;32m6\033[0m
+Tests Failed: \033[0;31m2\033[0m
+
+Failures:
+  - Firestore container is not running
+  - Failed to create Pub/Sub topic
+
+==========================================
+  Current System Status
+==========================================
+
+[0;34m[INFO][0m Infrastructure Services:
+  ✓ Redis: Running and healthy
+  ✓ Pub/Sub Emulator: Running
+  ✗ Firestore Emulator: Requires Java 21
+
+[0;34m[INFO][0m Application Services:
+  ✗ Edge Gateway: Not built (needs go.sum)
+  ✗ Router Service: Not built (needs go.sum)
+  ✗ Worker Service: Not implemented
+
+[0;34m[INFO][0m Observability Stack:
+  ✓ OTEL Collector config: Created
+  ✓ Prometheus config: Created
+  ✓ Grafana config: Created
+  ✗ Services not started
+
+==========================================
+  Acceptance Criteria Status (V-001)
+==========================================
+
+[ ] Request returns 202 Accepted
+[ ] Request ID generated and returned
+[ ] Message published to Pub/Sub
+[ ] Worker receives and processes message
+[ ] Status endpoint returns result
+[ ] End-to-end latency < 5 seconds
+
+==========================================
+  Next Steps
+==========================================
+
+1. Fix Go build issues:
+   - Generate go.sum: cd router && go mod tidy
+   - Or run in Docker with Go installed
+
+2. Fix Firestore emulator:
+   - Update docker-compose to use Java 21 image
+   - Or use alternative Firestore emulator image
+
+3. Complete router implementation:
+   - Implement missing pkg/observability
+   - Implement routes.NewMatcher with proper signature
+   - Wire up Pub/Sub publishing
+
+4. Implement worker service:
+   - Subscribe to Pub/Sub
+   - Process messages
+   - Publish results
+
+5. Build and test end-to-end flow
+

@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/apx/router/internal/middleware"
+	"github.com/apx/router/pkg/status"
 	"go.uber.org/zap"
 )
 
@@ -25,15 +29,19 @@ type RequestMessage struct {
 
 // Matcher handles route matching and message publishing
 type Matcher struct {
-	topic  *pubsub.Topic
-	logger *zap.Logger
+	topic       *pubsub.Topic
+	statusStore status.Store
+	logger      *zap.Logger
+	baseURL     string // Base URL for constructing status/stream URLs
 }
 
 // NewMatcher creates a new route matcher
-func NewMatcher(topic *pubsub.Topic, logger *zap.Logger) *Matcher {
+func NewMatcher(topic *pubsub.Topic, statusStore status.Store, logger *zap.Logger, baseURL string) *Matcher {
 	return &Matcher{
-		topic:  topic,
-		logger: logger,
+		topic:       topic,
+		statusStore: statusStore,
+		logger:      logger,
+		baseURL:     baseURL,
 	}
 }
 
@@ -91,7 +99,7 @@ func (m *Matcher) PublishRequest(ctx context.Context, msg *RequestMessage) error
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
-	m.logger.Debug("message published",
+	m.logger.Info("message published to pub/sub",
 		zap.String("tenant_id", msg.TenantID),
 		zap.String("request_id", msg.RequestID),
 		zap.String("server_id", serverID),
@@ -173,8 +181,149 @@ func (m *Matcher) PublishBatch(ctx context.Context, messages []*RequestMessage) 
 	return nil
 }
 
+// Handle is an HTTP handler that processes incoming requests
+func (m *Matcher) Handle(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Extract tenant_id from context (set by TenantContext middleware)
+	tenantID := middleware.GetTenantID(ctx)
+	tenantTier := middleware.GetTenantTier(ctx)
+
+	// Extract request_id from context (set by RequestID middleware)
+	requestID := middleware.GetRequestID(ctx)
+
+	m.logger.Info("request received",
+		zap.String("method", r.Method),
+		zap.String("path", r.URL.Path),
+		zap.String("request_id", requestID),
+		zap.String("tenant_id", tenantID),
+	)
+
+	// Read request body
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		m.logger.Error("failed to read request body", zap.Error(err))
+		http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Determine route (for now, just use the path)
+	route, err := m.MatchRoute(ctx, r.URL.Path, r.Method)
+	if err != nil {
+		m.logger.Error("failed to match route", zap.Error(err))
+		http.Error(w, `{"error":"failed to match route"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Extract policy version from context (set by PolicyVersionTag middleware)
+	policyVersion := r.Header.Get("X-Policy-Version")
+	if policyVersion == "" {
+		policyVersion = "v1.0.0" // Default
+	}
+
+	// Build RequestMessage
+	msg := &RequestMessage{
+		RequestID:     requestID,
+		TenantID:      tenantID,
+		TenantTier:    tenantTier,
+		Route:         route,
+		Method:        r.Method,
+		PolicyVersion: policyVersion,
+		Headers:       extractHeaders(r),
+		Body:          json.RawMessage(bodyBytes),
+		ReceivedAt:    time.Now(),
+	}
+
+	// Create initial status record
+	statusRecord := &status.StatusRecord{
+		RequestID: requestID,
+		TenantID:  tenantID,
+		Status:    status.StatusPending,
+		Progress:  0,
+		StreamURL: fmt.Sprintf("%s/stream/%s", m.baseURL, requestID),
+	}
+
+	if err := m.statusStore.Create(ctx, statusRecord); err != nil {
+		m.logger.Error("failed to create status record",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		// Continue anyway - don't fail the request
+	}
+
+	// Publish to Pub/Sub (if topic is configured)
+	if m.topic != nil {
+		if err := m.PublishRequest(ctx, msg); err != nil {
+			m.logger.Error("failed to publish message",
+				zap.String("request_id", requestID),
+				zap.Error(err),
+			)
+			// Mark status as failed
+			m.statusStore.SetError(ctx, requestID, fmt.Sprintf("failed to publish: %v", err))
+			http.Error(w, `{"error":"failed to publish request"}`, http.StatusInternalServerError)
+			return
+		}
+	} else {
+		m.logger.Warn("pub/sub topic not configured, request not published",
+			zap.String("request_id", requestID),
+		)
+	}
+
+	// Return 202 Accepted with status URL
+	response := map[string]interface{}{
+		"request_id": requestID,
+		"status":     "accepted",
+		"status_url": fmt.Sprintf("%s/status/%s", m.baseURL, requestID),
+		"stream_url": fmt.Sprintf("%s/stream/%s", m.baseURL, requestID),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(response)
+
+	m.logger.Info("request accepted",
+		zap.String("request_id", requestID),
+		zap.String("tenant_id", tenantID),
+	)
+}
+
+// extractHeaders extracts important headers from the request
+func extractHeaders(r *http.Request) map[string]string {
+	headers := make(map[string]string)
+
+	// List of headers to preserve
+	preserveHeaders := []string{
+		"Content-Type",
+		"Accept",
+		"User-Agent",
+		"X-Forwarded-For",
+		"X-Real-IP",
+		"Authorization",
+	}
+
+	for _, key := range preserveHeaders {
+		if value := r.Header.Get(key); value != "" {
+			headers[key] = value
+		}
+	}
+
+	// Copy all X- headers (custom headers)
+	for key, values := range r.Header {
+		if len(key) > 2 && key[:2] == "X-" {
+			if len(values) > 0 {
+				headers[key] = values[0]
+			}
+		}
+	}
+
+	return headers
+}
+
 // Close closes the Pub/Sub topic
 func (m *Matcher) Close() error {
-	m.topic.Stop()
+	if m.topic != nil {
+		m.topic.Stop()
+	}
 	return nil
 }

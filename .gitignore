@@ -1,0 +1,164 @@
+# APX Platform - Git Ignore (Open Core Model)
+# Public repo contains runtime, private overlay contains agents
+
+# ============================================================================
+# PRIVATE CODE (Never commit to public repo)
+# ============================================================================
+
+.private/
+
+# ============================================================================
+# SECRETS & CREDENTIALS
+# ============================================================================
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# GCP credentials
+*.json
+!configs/**/*.json
+service-account-*.json
+.gcloud/
+.config/gcloud/
+
+# Kubernetes
+.kube/
+kubeconfig*
+
+# SSH & TLS
+*.key
+*.pem
+*.crt
+!edge/tls/example.crt
+id_rsa*
+*.ppk
+
+# ============================================================================
+# BUILD ARTIFACTS
+# ============================================================================
+
+# Go
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Docker
+*.tar
+*.tar.gz
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!infra/terraform/**/*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+terraform.tfplan
+
+# WASM
+*.wasm
+!edge/wasm-filters/examples/*.wasm
+
+# ============================================================================
+# IDE & EDITORS
+# ============================================================================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ============================================================================
+# LOGS & TEMP FILES
+# ============================================================================
+
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+tmp/
+temp/
+.cache/
+
+# Test results
+coverage.txt
+coverage.html
+*.coverprofile
+test-results/
+junit.xml
+
+# ============================================================================
+# CLOUD & DEPLOYMENT
+# ============================================================================
+
+# Cloud Run
+.run/
+
+# Kubernetes
+*.kubeconfig
+
+# Helm
+charts/*.tgz
+
+# ============================================================================
+# DEVELOPMENT
+# ============================================================================
+
+# Local overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Scratch space
+scratch/
+playground/
+_dev/
+
+# Air (Go hot reload)
+.air.toml
+tmp/
+
+# ============================================================================
+# OS SPECIFIC
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.Trash-*
+.nfs*
+
+# Archive (historical agent reports)
+.archive/
