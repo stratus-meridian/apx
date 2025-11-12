@@ -45,6 +45,7 @@ func main() {
 	// Configuration
 	projectID := getEnv("GCP_PROJECT_ID", "apx-dev")
 	region := getEnv("GCP_REGION", "us-central1")
+	subscriptionID := getEnv("PUBSUB_SUBSCRIPTION", "apx-workers-us")
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 
 	// Initialize Redis
@@ -72,36 +73,21 @@ func main() {
 	}
 	defer client.Close()
 
-	// Get subscription
-	subscriptionName := fmt.Sprintf("apx-workers-%s", region)
-	sub := client.Subscription(subscriptionName)
+	// Get subscription (already created by Terraform)
+	sub := client.Subscription(subscriptionID)
 
-	// Check if subscription exists, create if not
+	// Verify subscription exists
 	exists, err := sub.Exists(ctx)
 	if err != nil {
-		logger.Fatal("failed to check subscription", zap.Error(err))
+		logger.Fatal("failed to check subscription existence", zap.Error(err))
 	}
-
 	if !exists {
-		topicName := fmt.Sprintf("apx-requests-%s", region)
-		topic := client.Topic(topicName)
-
-		logger.Info("creating subscription",
-			zap.String("subscription", subscriptionName),
-			zap.String("topic", topicName))
-
-		sub, err = client.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{
-			Topic:                 topic,
-			EnableMessageOrdering: true,
-			AckDeadline:           60 * time.Second,
-		})
-		if err != nil {
-			logger.Fatal("failed to create subscription", zap.Error(err))
-		}
+		logger.Fatal("subscription does not exist - must be created by Terraform",
+			zap.String("subscription", subscriptionID))
 	}
 
 	logger.Info("worker started",
-		zap.String("subscription", subscriptionName),
+		zap.String("subscription", subscriptionID),
 		zap.String("region", region))
 
 	// Handle shutdown gracefully
