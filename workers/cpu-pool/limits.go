@@ -1,4 +1,4 @@
-package cpupool
+package main
 
 import (
 	"context"

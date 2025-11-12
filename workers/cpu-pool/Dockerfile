@@ -6,17 +6,16 @@ WORKDIR /build
 RUN apk add --no-cache git
 
 # Copy go mod files
-COPY workers/cpu-pool/go.mod ./
-COPY workers/cpu-pool/go.sum* ./
+COPY go.mod ./
 
 # Copy source (needed for go mod tidy)
-COPY workers/cpu-pool/*.go ./
+COPY *.go ./
 
 # Download dependencies and tidy
 RUN go mod tidy && go mod download
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o worker ./main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o worker .
 
 # Runtime image
 FROM alpine:latest
