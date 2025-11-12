@@ -108,6 +108,11 @@ coverage.html
 *.coverprofile
 test-results/
 junit.xml
+results/
+
+# Setup scripts (temporary)
+setup-*.sh
+setup-commands.sh
 
 # ============================================================================
 # CLOUD & DEPLOYMENT
