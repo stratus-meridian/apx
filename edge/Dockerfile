@@ -6,7 +6,7 @@ FROM envoyproxy/envoy:v1.29-latest
 # Install envsubst for environment variable substitution
 USER root
 RUN apt-get update && \
-    apt-get install -y gettext-base && \
+    apt-get install -y gettext-base curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

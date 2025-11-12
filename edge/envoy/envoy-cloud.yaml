@@ -147,16 +147,9 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
           sni: ${ROUTER_HOST}
-      health_checks:
-        - timeout: 2s
-          interval: 10s
-          unhealthy_threshold: 2
-          healthy_threshold: 2
-          http_health_check:
-            path: "/health"
-            host: ${ROUTER_HOST}
-          transport_socket_match_criteria:
-            useMTLS: true
+      # NOTE: Health checks removed - Cloud Run backend requires authentication
+      # which is handled by auth sidecar for actual requests, not health checks
+      # Cloud Run's own health checks handle backend availability
 
 # Cloud Trace configuration
 tracing:
