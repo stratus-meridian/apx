@@ -1,0 +1,31 @@
+name: "payments-api"
+version: "1.0.0"
+compat: "backward"
+
+authz_rego: |
+  package authz
+
+  # Allow GET requests for all authenticated users
+  allow {
+    input.method == "GET"
+    input.user.authenticated == true
+  }
+
+  # Allow POST/PUT for admin users
+  allow {
+    input.method in ["POST", "PUT", "DELETE"]
+    input.user.role == "admin"
+  }
+
+  # Rate limiting: max 100 requests per user per hour
+  quota_exceeded {
+    count(user_requests[input.user.id]) > 100
+  }
+
+quotas:
+  requests_per_day: 10000
+  requests_per_hour: 1000
+
+rate_limit:
+  per_second: 10
+  burst: 50

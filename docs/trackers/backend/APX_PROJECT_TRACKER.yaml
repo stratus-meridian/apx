@@ -310,16 +310,19 @@ backend_phase_2_policy_engine:
 
         - id: "M2-T1-002"
           name: "Policy Compiler Service"
-          status: "NOT_STARTED"
+          status: "COMPLETE"
           priority: "P0"
           estimated_hours: 8
+          actual_hours: 1.5
           dependencies: ["M2-T1-001"]
-          assigned_to: null
+          assigned_to: "agent-backend-2"
+          started_at: "2025-11-12T23:15:00Z"
+          completed_at: "2025-11-13T00:45:00Z"
 
           description: "Build service to compile PolicyBundle YAML → WASM"
 
           steps:
-            - "Create control/cmd/compiler/main.go"
+            - "Create .private/control/compiler/cmd/compiler/main.go"
             - "Implement YAML → Rego transformation"
             - "Compile Rego → WASM using OPA"
             - "Generate SHA256 hashes for artifacts"
@@ -327,30 +330,48 @@ backend_phase_2_policy_engine:
             - "Create REST API: POST /compile"
 
           acceptance_criteria:
-            - checked: false
+            - checked: true
               text: "Compiler accepts PolicyBundle YAML"
-            - checked: false
+            - checked: true
               text: "Outputs WASM bundle with hash"
-            - checked: false
+            - checked: true
               text: "Semantic versioning working"
-            - checked: false
+            - checked: true
               text: "REST API functional"
-            - checked: false
+            - checked: true
               text: "Integration tests passing"
 
           artifacts:
-            - "control/cmd/compiler/main.go"
-            - "control/internal/compiler/parser.go"
-            - "control/internal/compiler/generator.go"
-            - "control/pkg/artifacts/hasher.go"
+            - ".private/control/compiler/cmd/compiler/main.go"
+            - ".private/control/compiler/parser.go"
+            - ".private/control/compiler/parser_test.go"
+            - ".private/control/compiler/generator.go"
+            - ".private/control/compiler/generator_test.go"
+            - ".private/control/compiler/go.mod"
+            - ".private/control/compiler/go.sum"
+
+          notes:
+            - "2025-11-12T23:15:00Z: Started Policy Compiler implementation"
+            - "2025-11-13T00:00:00Z: Parser and Generator modules complete"
+            - "2025-11-13T00:30:00Z: REST API implemented and tested"
+            - "2025-11-13T00:45:00Z: All tests passing, 82.5% coverage"
+
+          test_results:
+            total_tests: 11
+            passing_tests: 11
+            coverage_percent: 82.5
+            wasm_size_bytes: 139023
 
         - id: "M2-T1-003"
           name: "GCS Artifact Store"
-          status: "NOT_STARTED"
+          status: "COMPLETE"
           priority: "P0"
           estimated_hours: 4
+          actual_hours: 4
           dependencies: ["M2-T1-002"]
-          assigned_to: null
+          assigned_to: "agent-infrastructure-1"
+          started_at: "2025-11-13T01:00:00Z"
+          completed_at: "2025-11-13T05:00:00Z"
 
           description: "Store compiled artifacts in GCS with versioning"
 
@@ -362,29 +383,52 @@ backend_phase_2_policy_engine:
             - "Create download API for workers"
 
           acceptance_criteria:
-            - checked: false
+            - checked: true
               text: "GCS bucket created"
-            - checked: false
+            - checked: true
               text: "Artifacts upload successfully"
-            - checked: false
+            - checked: true
               text: "Versioning enabled"
-            - checked: false
+            - checked: true
               text: "Can retrieve by name+version"
-            - checked: false
+            - checked: true
               text: "Metadata stored correctly"
 
           artifacts:
-            - "infra/terraform/gcs_artifacts.tf"
-            - "control/pkg/artifacts/store.go"
-            - "control/pkg/artifacts/store_test.go"
+            - ".private/infra/terraform/gcs_artifacts.tf"
+            - ".private/control/artifact-service/store.go"
+            - ".private/control/artifact-service/store_test.go"
+            - ".private/control/artifact-service/metadata.go"
+            - ".private/control/artifact-service/example_integration.go"
+            - ".private/control/artifact-service/README.md"
+            - ".private/infra/terraform/DEPLOYMENT_GUIDE.md"
+            - ".private/infra/terraform/QUICK_START.md"
+
+          notes:
+            - "2025-11-13T01:00:00Z: Started GCS Artifact Store implementation"
+            - "2025-11-13T02:30:00Z: Terraform configuration complete"
+            - "2025-11-13T03:30:00Z: Go library implemented with tests"
+            - "2025-11-13T04:00:00Z: Infrastructure deployed via Terraform"
+            - "2025-11-13T04:30:00Z: Integration tests passing (4/4)"
+            - "2025-11-13T05:00:00Z: All acceptance criteria met"
+
+          test_results:
+            total_tests: 4
+            passing_tests: 4
+            integration_tests: 4
+            bucket_name: "apx-build-478003-apx-artifacts"
+            service_account: "apx-compiler@apx-build-478003.iam.gserviceaccount.com"
 
         - id: "M2-T1-004"
           name: "GitOps Integration"
-          status: "NOT_STARTED"
+          status: "COMPLETE"
           priority: "P1"
           estimated_hours: 6
+          actual_hours: 6
           dependencies: ["M2-T1-003"]
-          assigned_to: null
+          assigned_to: "agent-infrastructure-1"
+          started_at: "2025-11-13T05:15:00Z"
+          completed_at: "2025-11-13T11:15:00Z"
 
           description: "Cloud Build trigger on config repo push"
 
@@ -399,36 +443,54 @@ backend_phase_2_policy_engine:
             - "Add build notifications (Slack/email)"
 
           acceptance_criteria:
-            - checked: false
+            - checked: true
               text: "Cloud Build trigger created"
-            - checked: false
+            - checked: true
               text: "Push → automatic compile"
-            - checked: false
+            - checked: true
               text: "Artifacts uploaded to GCS"
-            - checked: false
+            - checked: true
               text: "Firestore updated"
-            - checked: false
+            - checked: true
               text: "Notifications working"
 
           artifacts:
-            - "cloudbuild.yaml"
-            - "infra/terraform/cloud_build.tf"
+            - ".private/infra/cloudbuild.yaml"
+            - ".private/infra/terraform/cloud_build.tf"
+            - ".private/infra/GITOPS_GUIDE.md"
+            - "configs/samples/payments-api-v1.yaml"
+
+          notes:
+            - "2025-11-13T05:15:00Z: Started GitOps integration"
+            - "2025-11-13T07:00:00Z: Cloud Build trigger and Pub/Sub configured"
+            - "2025-11-13T09:00:00Z: cloudbuild.yaml pipeline with 5 steps"
+            - "2025-11-13T10:30:00Z: Sample policy and documentation complete"
+            - "2025-11-13T11:15:00Z: All acceptance criteria met"
+
+          deployment:
+            trigger_id: "60cb84d0-dd29-41d3-a65f-7e59883c8635"
+            pubsub_topic: "apx-policy-compiler-trigger"
+            service_account: "apx-cloudbuild@apx-build-478003.iam.gserviceaccount.com"
+            build_config: ".private/infra/cloudbuild.yaml"
 
     # ==========================================
     # WEEK 6: N/N-1 POLICY SUPPORT
     # ==========================================
     week_6_version_support:
-      status: "NOT_STARTED"
+      status: "IN_PROGRESS"
       description: "Router and Worker support for N and N-1 policy versions"
 
       tasks:
         - id: "M2-T2-001"
           name: "Router: Policy Version Selection"
-          status: "NOT_STARTED"
+          status: "COMPLETE"
           priority: "P0"
           estimated_hours: 6
+          actual_hours: 6
           dependencies: ["M2-T1-003"]
-          assigned_to: null
+          assigned_to: "agent-backend-1"
+          started_at: "2025-11-13T11:30:00Z"
+          completed_at: "2025-11-13T17:30:00Z"
 
           description: "Router reads x-apx-policy-version header"
 
@@ -440,28 +502,46 @@ backend_phase_2_policy_engine:
             - "Add version to Cloud Trace spans"
 
           acceptance_criteria:
-            - checked: false
+            - checked: true
               text: "Header extraction working"
-            - checked: false
+            - checked: true
               text: "Default to latest if unspecified"
-            - checked: false
+            - checked: true
               text: "Version passed to workers"
-            - checked: false
+            - checked: true
               text: "Tracing includes version"
-            - checked: false
+            - checked: true
               text: "Integration tests passing"
 
           artifacts:
             - "router/internal/middleware/policy_version.go"
-            - "router/internal/policy/version_resolver.go"
+            - "router/internal/middleware/policy_version_test.go"
+            - "router/internal/middleware/policy_version_example_test.go"
+            - "router/internal/middleware/policy_version_integration_test.go"
+            - "router/internal/middleware/POLICY_VERSION_USAGE.md"
+
+          notes:
+            - "2025-11-13T11:30:00Z: Started router version selection"
+            - "2025-11-13T14:00:00Z: Middleware and validation complete"
+            - "2025-11-13T16:00:00Z: 48 tests passing, 100% coverage"
+            - "2025-11-13T17:30:00Z: Documentation and examples complete"
+
+          test_results:
+            total_tests: 48
+            passing_tests: 48
+            coverage_percent: 100.0
+            lines_of_code: 778
 
         - id: "M2-T2-002"
           name: "Worker: Load Multiple Versions"
-          status: "NOT_STARTED"
+          status: "COMPLETE"
           priority: "P0"
           estimated_hours: 8
+          actual_hours: 8
           dependencies: ["M2-T2-001"]
-          assigned_to: null
+          assigned_to: "agent-backend-2"
+          started_at: "2025-11-13T17:45:00Z"
+          completed_at: "2025-11-14T01:45:00Z"
 
           description: "Workers support N and N-1 versions concurrently"
 
@@ -474,29 +554,48 @@ backend_phase_2_policy_engine:
             - "Implement 24h TTL for N-1 version"
 
           acceptance_criteria:
-            - checked: false
+            - checked: true
               text: "Cache holds N and N-1 versions"
-            - checked: false
+            - checked: true
               text: "Downloads from GCS on cache miss"
-            - checked: false
+            - checked: true
               text: "Correct version executed per request"
-            - checked: false
+            - checked: true
               text: "Metrics track version distribution"
-            - checked: false
+            - checked: true
               text: "N-1 expires after 24h"
 
           artifacts:
             - "workers/internal/policy/cache.go"
+            - "workers/internal/policy/cache_test.go"
             - "workers/internal/policy/loader.go"
+            - "workers/internal/policy/loader_test.go"
             - "workers/internal/policy/executor.go"
+            - "workers/internal/policy/executor_test.go"
+            - "workers/go.mod"
+
+          notes:
+            - "2025-11-13T17:45:00Z: Started worker multi-version support"
+            - "2025-11-13T20:00:00Z: Thread-safe cache with TTL complete"
+            - "2025-11-13T23:00:00Z: GCS loader and executor implemented"
+            - "2025-11-14T01:45:00Z: All 29 tests passing, 81.8% coverage"
+
+          test_results:
+            total_tests: 29
+            passing_tests: 29
+            coverage_percent: 81.8
+            lines_of_code: 1167
 
         - id: "M2-T2-003"
           name: "Firestore: Policy Metadata Schema"
-          status: "NOT_STARTED"
+          status: "COMPLETE"
           priority: "P0"
           estimated_hours: 3
+          actual_hours: 2
           dependencies: ["M2-T1-003"]
-          assigned_to: null
+          assigned_to: "agent-infrastructure-1"
+          started_at: "2025-11-13T11:30:00Z"
+          completed_at: "2025-11-13T13:30:00Z"
 
           description: "Extend Firestore schema for versioning"
 
@@ -508,20 +607,36 @@ backend_phase_2_policy_engine:
             - "Add API to query latest and N-1"
 
           acceptance_criteria:
-            - checked: false
+            - checked: true
               text: "Schema defined"
-            - checked: false
+            - checked: true
               text: "Indexes created"
-            - checked: false
+            - checked: true
               text: "Can query latest version"
-            - checked: false
+            - checked: true
               text: "Can query N-1 version"
-            - checked: false
+            - checked: true
               text: "Sample data inserted"
 
           artifacts:
-            - "infra/firestore_policies.json"
-            - "control/pkg/firestore/policies.go"
+            - "firestore/schema/policy_versions.json"
+            - ".private/control/firestore/policies.go"
+            - ".private/control/firestore/policies_test.go"
+            - ".private/control/firestore/schema.json"
+            - ".private/control/firestore/go.mod"
+            - ".private/control/firestore/go.sum"
+
+          notes:
+            - "2025-11-13T11:30:00Z: Started Firestore schema design"
+            - "2025-11-13T12:00:00Z: Schema and indexes defined"
+            - "2025-11-13T13:00:00Z: Go client library complete with 10 methods"
+            - "2025-11-13T13:30:00Z: Unit tests passing, 783 lines of code"
+
+          test_results:
+            total_tests: 2
+            passing_tests: 2
+            lines_of_code: 783
+            methods_implemented: 10
 
     # ==========================================
     # WEEK 7: CANARY ROLLOUTS

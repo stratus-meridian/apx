@@ -2,70 +2,104 @@ package middleware
 
 import (
 	"context"
-	"crypto/rand"
-	"math/big"
 	"net/http"
-
-	"github.com/apx/router/internal/policy"
-	"go.uber.org/zap"
 )
 
+// contextKey is a custom type for context keys to avoid collisions
 type contextKey string
 
 const (
-	// CanaryWeightKey is the context key for the canary weight
-	CanaryWeightKey contextKey = "canary_weight"
+	// HeaderTenantID is the header for tenant identification
+	HeaderTenantID = "X-Tenant-ID"
+
+	// ContextKeyCanary is the context key for canary status
+	ContextKeyCanary contextKey = "apx.canary.status"
+
+	// ContextKeyCanaryVersion is the context key for selected canary version
+	ContextKeyCanaryVersion contextKey = "apx.canary.version"
+
 	// PolicyVersionKey is the context key for the selected policy version
+	// This is used by other middleware for backward compatibility
 	PolicyVersionKey contextKey = "policy_version"
 )
 
-// CanarySelector adds canary traffic routing logic
-// It assigns each request a random weight (0-100) and stores it in context
-// This weight is used by the policy store to select the appropriate policy version
-func CanarySelector(store *policy.Store, logger *zap.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Generate a cryptographically secure random number between 0-100
-			canaryWeight := generateCanaryWeight()
+// CanaryDecider is a function type that decides canary routing
+// Returns: (version string, isCanary bool, error)
+type CanaryDecider func(ctx context.Context, policyName, tenantID string) (string, bool, error)
 
-			// Store the canary weight in context for downstream use
-			ctx := context.WithValue(r.Context(), CanaryWeightKey, canaryWeight)
+// Canary middleware for traffic splitting with consistent hashing
+type Canary struct {
+	// CanaryDecider is a function that decides canary routing
+	// In production, this would use the splitter from .private/control/canary
+	CanaryDecider CanaryDecider
+}
 
-			// Note: Policy version selection happens later in the request chain
-			// when we know which policy to apply (based on tenant, route, etc.)
-			// The middleware just generates and stores the canary weight
-
-			logger.Debug("canary weight assigned",
-				zap.Int("weight", canaryWeight),
-				zap.String("request_id", r.Header.Get("X-Request-ID")),
-			)
-
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+// NewCanary creates new canary middleware
+func NewCanary(decider CanaryDecider) *Canary {
+	return &Canary{
+		CanaryDecider: decider,
 	}
 }
 
-// generateCanaryWeight generates a random number between 0 and 100
-func generateCanaryWeight() int {
-	// Use crypto/rand for secure random number generation
-	n, err := rand.Int(rand.Reader, big.NewInt(100))
-	if err != nil {
-		// Fall back to a safe default if crypto random fails
-		return 50
-	}
-	return int(n.Int64())
+// Handler returns HTTP middleware
+func (c *Canary) Handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract tenant ID
+		tenantID := r.Header.Get(HeaderTenantID)
+		if tenantID == "" {
+			// Default tenant for requests without tenant ID
+			tenantID = "default"
+		}
+
+		// Get policy version from context (set by PolicyVersion middleware)
+		policyVersion := GetVersionFromContext(r.Context())
+
+		// If version is "latest", check canary config
+		if policyVersion == "latest" && c.CanaryDecider != nil {
+			// Policy name would come from request routing
+			// For now, use a placeholder
+			policyName := "default-policy"
+
+			version, isCanary, err := c.CanaryDecider(r.Context(), policyName, tenantID)
+			if err == nil {
+				// Update policy version in context
+				ctx := context.WithValue(r.Context(), ContextKeyPolicyVersion, version)
+				ctx = context.WithValue(ctx, ContextKeyCanary, isCanary)
+				ctx = context.WithValue(ctx, ContextKeyCanaryVersion, version)
+				r = r.WithContext(ctx)
+
+				// Add canary header to response
+				if isCanary {
+					w.Header().Set("X-Apx-Canary", "true")
+					w.Header().Set("X-Apx-Canary-Version", version)
+				} else {
+					w.Header().Set("X-Apx-Canary", "false")
+				}
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
-// GetCanaryWeight extracts the canary weight from request context
-func GetCanaryWeight(ctx context.Context) int {
-	if weight, ok := ctx.Value(CanaryWeightKey).(int); ok {
-		return weight
+// IsCanary checks if current request is using canary version
+func IsCanary(ctx context.Context) bool {
+	if isCanary, ok := ctx.Value(ContextKeyCanary).(bool); ok {
+		return isCanary
 	}
-	// Default to 50 if not set (middle of the range)
-	return 50
+	return false
+}
+
+// GetCanaryVersion extracts the canary version from request context
+func GetCanaryVersion(ctx context.Context) string {
+	if version, ok := ctx.Value(ContextKeyCanaryVersion).(string); ok {
+		return version
+	}
+	return ""
 }
 
 // GetPolicyVersion extracts the selected policy version from request context
+// This is for backward compatibility with other middleware
 func GetPolicyVersion(ctx context.Context) string {
 	if version, ok := ctx.Value(PolicyVersionKey).(string); ok {
 		return version
