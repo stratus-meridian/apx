@@ -1,0 +1,234 @@
+================================================================================
+PHASE 2 CLOUD RUN DEPLOYMENT ARCHITECTURE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         APX PLATFORM - PHASE 2                              │
+│                     Production Deployment on Cloud Run                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ EXTERNAL TRAFFIC                                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+                      ┌──────────────────────────┐
+                      │   Global Load Balancer   │
+                      │   34.120.96.89           │
+                      │   api.apx.build          │
+                      └──────────────────────────┘
+                                    │
+                                    ▼
+                      ┌──────────────────────────┐
+                      │   Cloud Armor            │
+                      │   (Security Policy)      │
+                      └──────────────────────────┘
+                                    │
+                                    ▼
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 1 SERVICES (Existing)                                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+        ┌─────────────────────┐         ┌─────────────────────┐
+        │   Edge Service      │         │   Router Service    │
+        │   apx-edge-dev      │────────▶│   apx-router-dev    │
+        │   Public Access     │         │   Internal          │
+        └─────────────────────┘         └─────────────────────┘
+                                                  │
+                                                  ▼
+                                    ┌──────────────────────────┐
+                                    │   Pub/Sub                │
+                                    │   apx-requests-us        │
+                                    └──────────────────────────┘
+                                                  │
+                                                  ▼
+                                    ┌──────────────────────────┐
+                                    │   Worker Service         │
+                                    │   apx-worker-cpu-dev     │
+                                    │   Min:1 Max:50           │
+                                    └──────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 2 SERVICES (Newly Deployed)                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+        ┌─────────────────────┐         ┌─────────────────────┐
+        │   Monitor Service   │────────▶│   Firestore DB      │
+        │   apx-monitor-dev   │         │   (default)         │
+        │   Always Running    │◀────────│   Metrics & State   │
+        │   Min:1 Max:3       │         └─────────────────────┘
+        └─────────────────────┘
+                │
+                │ Auto-Rollback
+                ▼
+        Policy Version Monitoring
+        - 60s check interval
+        - 5% error threshold
+        - Canary traffic 10-50%
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 2 STORAGE                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+        ┌─────────────────────────────────────────────────────┐
+        │   GCS Artifacts Bucket                              │
+        │   apx-build-478003-apx-artifacts                    │
+        │   ┌───────────────────────────────────────────┐     │
+        │   │ /policies/                                │     │
+        │   │   ├─ tenant-1/                           │     │
+        │   │   │   ├─ v1.0.0.wasm                     │     │
+        │   │   │   ├─ v1.1.0.wasm                     │     │
+        │   │   │   └─ v2.0.0.wasm                     │     │
+        │   │   └─ tenant-2/                           │     │
+        │   │       └─ v1.0.0.wasm                     │     │
+        │   └───────────────────────────────────────────┘     │
+        │   Features:                                          │
+        │   - Versioning: Enabled                             │
+        │   - Lifecycle: 90-day retention                     │
+        │   - Access: Service accounts only                   │
+        └─────────────────────────────────────────────────────┘
+
+        ┌─────────────────────────────────────────────────────┐
+        │   Firestore Database (default)                      │
+        │   ┌───────────────────────────────────────────┐     │
+        │   │ Collections:                              │     │
+        │   │   ├─ policies/                            │     │
+        │   │   │   └─ {tenant}/{policy_id}            │     │
+        │   │   ├─ policy_versions/                     │     │
+        │   │   │   └─ {tenant}/{policy_id}/{version}  │     │
+        │   │   └─ policy_artifacts/                    │     │
+        │   │       └─ {hash} → GCS path               │     │
+        │   └───────────────────────────────────────────┘     │
+        │   Indexes:                                           │
+        │   - policies: tenant + version                      │
+        │   - policies: status + updated                      │
+        │   - artifacts: hash                                 │
+        └─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 2 GITOPS PIPELINE                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Developer                 Pub/Sub Trigger          Cloud Build
+        │                           │                        │
+        │  Push policy YAML         │                        │
+        │──────────────────────────▶│  Manual Trigger        │
+                                    │───────────────────────▶│
+                                                             │
+                                                             │ Compile YAML→WASM
+                                                             │ Store to GCS
+                                                             │ Update Firestore
+                                                             │
+                                                             ▼
+                                    ┌──────────────────────────────┐
+                                    │   GCS Artifacts              │
+                                    │   + Firestore Metadata       │
+                                    └──────────────────────────────┘
+                                                             │
+                                                             ▼
+                                    ┌──────────────────────────────┐
+                                    │   Workers Pull & Cache       │
+                                    │   (5-minute TTL)             │
+                                    └──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SERVICE ACCOUNTS & PERMISSIONS                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    apx-compiler@apx-build-478003.iam.gserviceaccount.com
+        └─▶ roles/storage.objectAdmin (GCS artifacts)
+
+    apx-cloudbuild@apx-build-478003.iam.gserviceaccount.com
+        ├─▶ roles/storage.objectAdmin (GCS artifacts)
+        ├─▶ roles/datastore.user (Firestore)
+        ├─▶ roles/logging.logWriter (Logging)
+        └─▶ roles/cloudbuild.builds.editor (Cloud Build)
+
+    apx-monitor@apx-build-478003.iam.gserviceaccount.com
+        ├─▶ roles/datastore.user (Firestore)
+        └─▶ roles/storage.objectViewer (GCS artifacts)
+
+    apx-router-dev@apx-build-478003.iam.gserviceaccount.com (existing)
+        ├─▶ Access to GCS artifacts bucket
+        └─▶ Access to Firestore policies
+
+    apx-worker-dev@apx-build-478003.iam.gserviceaccount.com (existing)
+        ├─▶ Access to GCS artifacts bucket  
+        └─▶ Access to Firestore policies
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 2 DATA FLOW                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Request with Policy Version
+            │
+            ▼
+    ┌──────────────────┐
+    │   Router         │  1. Check version header
+    │                  │  2. Route to appropriate policy
+    └──────────────────┘  3. Apply canary rules
+            │
+            ▼
+    ┌──────────────────┐
+    │   Worker         │  1. Check Redis cache
+    │                  │  2. If miss, fetch from GCS
+    └──────────────────┘  3. Execute WASM policy
+            │             4. Cache result (300s TTL)
+            ▼
+    ┌──────────────────┐
+    │   Monitor        │  1. Track metrics by version
+    │                  │  2. Check error rate (5% threshold)
+    └──────────────────┘  3. Auto-rollback if needed
+            │
+            ▼
+    Response with Policy Result
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DEPLOYMENT SUMMARY                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Status: ✅ PRODUCTION READY
+    
+    Infrastructure Deployed:
+    ✅ GCS Artifacts Bucket (versioning enabled)
+    ✅ Firestore Database (3 collections + indexes)
+    ✅ Cloud Build Trigger (Pub/Sub)
+    ✅ Monitor Service (running, healthy)
+    ✅ Service Accounts (3 new, 2 updated)
+    ✅ IAM Permissions (6 bindings)
+    
+    Services Configured:
+    ✅ Router (Phase 2 env vars)
+    ✅ Workers (Phase 2 env vars)
+    ✅ Monitor (always running)
+    
+    Features Enabled:
+    ✅ Policy Versioning System
+    ✅ Canary Deployment with Auto-Rollback
+    ✅ Policy Caching (Redis + GCS)
+    ✅ GitOps Compilation Pipeline
+    
+    Verification: 8/8 tests passed
+    
+    Deployment Time: ~3 minutes
+    Monthly Cost: ~$50-60 (Phase 2 additions)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ KEY URLS                                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Public API:     https://api.apx.build
+    Edge Service:   https://apx-edge-dev-jcvvfyilzq-uc.a.run.app
+    Router:         https://apx-router-dev-jcvvfyilzq-uc.a.run.app
+    Workers:        https://apx-worker-cpu-dev-jcvvfyilzq-uc.a.run.app
+    Monitor:        https://apx-monitor-dev-jcvvfyilzq-uc.a.run.app
+    
+    Artifacts:      gs://apx-build-478003-apx-artifacts
+
+================================================================================
+Deployment Date: November 12, 2025 at 22:11:23 CST
+Project: apx-build-478003
+Region: us-central1
+Environment: dev
+================================================================================

@@ -1,6 +1,6 @@
 module github.com/apx/workers
 
-go 1.25.4
+go 1.23
 
 require cloud.google.com/go/storage v1.57.1
 
