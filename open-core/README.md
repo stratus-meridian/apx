@@ -13,7 +13,7 @@
 > - Customer portal for self-service management
 > - SLA guarantees and enterprise support
 >
-> For commercial features, visit [https://apilee.io](https://apilee.io)
+> For commercial features, visit [https://apx.build](https://apx.build)
 
 ---
 
@@ -466,9 +466,9 @@ Apache 2.0 - see [LICENSE](LICENSE)
 
 ## Links
 
-- **Website**: [https://apilee.io](https://apilee.io)
-- **Documentation**: [https://docs.apilee.io](https://docs.apilee.io)
-- **Commercial Platform**: [Contact Sales](https://apilee.io/contact)
+- **Website**: [https://apx.build](https://apx.build)
+- **Documentation**: [https://docs.apx.build](https://docs.apx.build)
+- **Commercial Platform**: [Contact Sales](https://apx.build/contact)
 - **Issues**: [GitHub Issues](https://github.com/stratus-meridian/apx-router-open-core/issues)
 
 ---

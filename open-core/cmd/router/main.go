@@ -28,7 +28,7 @@ import (
 func main() {
 	// Use fmt.Println for early errors before logger is initialized
 	fmt.Println("Starting APX Router (Open-Core Edition)...")
-	fmt.Println("This is the open-source gateway. For commercial features (billing, analytics, control plane), visit https://apilee.io")
+	fmt.Println("This is the open-source gateway. For commercial features (billing, analytics, control plane), visit https://apx.build")
 
 	// Initialize logger
 	logger, err := zap.NewProduction()
