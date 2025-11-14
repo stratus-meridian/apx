@@ -20,12 +20,23 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /streaming-aggregator .
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates curl
 
-WORKDIR /root/
+WORKDIR /app
 
 COPY --from=builder /streaming-aggregator .
 
+# Add non-root user
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
 EXPOSE 8083
 
-CMD ["./streaming-aggregator"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8083/health || exit 1
+
+ENTRYPOINT ["./streaming-aggregator"]
