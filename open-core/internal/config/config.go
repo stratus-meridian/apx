@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 )
@@ -77,10 +76,8 @@ func Load() (*Config, error) {
 		cfg.PubSubProjectID = cfg.ProjectID
 	}
 
-	// Validate required fields
-	if cfg.ProjectID == "" {
-		return nil, fmt.Errorf("GCP_PROJECT_ID is required")
-	}
+	// Note: GCP_PROJECT_ID is optional in open-core edition
+	// If not set, Pub/Sub features will be disabled (which is fine for demo/testing)
 
 	return cfg, nil
 }
