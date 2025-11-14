@@ -1,7 +1,7 @@
 # APX Platform - Visual Roadmap
 
-**Last Updated:** 2025-11-12
-**Overall Progress:** 62% Complete (62/100 tasks)
+**Last Updated:** 2025-11-13
+**Overall Progress:** 80% Complete (80/100 tasks)
 
 ---
 
@@ -70,12 +70,27 @@ Week 8    │ Integration Tests │ Acceptance Tests
           16 tasks | 7 days | 242 tests | 82.7% coverage | Production Ready ✅
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHASE 3: RATE LIMITING                                      🔜 PLANNED
+PHASE 2.5: MULTI-TENANT & RATE LIMITING                     ✅ COMPLETE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Week 11-14│ Redis │ Token Bucket │ Hierarchical Limits │ Cost Controls
+Week 9-10 │ Multi-Tenant │ Firestore Schema │ BigQuery Usage
+          ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 100%
+
+Week 10-11│ Rate Limiting │ Redis HA │ Hierarchical Limits
+          ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 100%
+
+Week 11-12│ Control Plane API │ Policy Mgmt │ Canary │ Analytics
+          ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 100%
+
+          Results: 18 tasks | 672 tests passing | 85%+ coverage
+          New Service: Control Plane API (apx-control-api)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 3: BILLING BACKEND                                    🔜 NEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Week 13-14│ Ledger Service │ Stripe Integration │ Billing APIs
           ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 0%
 
-          12 tasks | 4 weeks | <$5/day for 1M req/day
+          3 tasks | USD + USDC support | Stripe + Coinbase
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PHASE 4: AGENTS + PORTAL PRO                                🔮 FUTURE
@@ -95,8 +110,8 @@ Week 19-26│ US + EU │ Data Residency │ WebSocket │ Optimizer
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-OVERALL PROGRESS:  62/100 tasks complete (62%)
-                   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░
+OVERALL PROGRESS:  80/100 tasks complete (80%)
+                   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░
 
 ESTIMATED COMPLETION: May 2026 (6 months from start)
 
@@ -107,6 +122,16 @@ PHASE 2 ACHIEVEMENTS:
 - 9,543 lines of code
 - 94 files created
 - Infrastructure fully deployed
+- Production ready ✅
+
+PHASE 2.5 ACHIEVEMENTS:
+- 18/18 tasks complete (100%)
+- 672 tests passing (100% pass rate)
+- 85%+ average test coverage
+- 8,937 lines of code (Control API)
+- New service: Control Plane API
+- Multi-tenant architecture
+- Redis-based rate limiting
 - Production ready ✅
 ```
 
@@ -124,16 +149,19 @@ Phase 1: Infrastructure       ████████████████�
 Portal M1: Core               ████████████████████ 100% ✅
 Portal M2: Analytics          ████████████████████ 100% ✅
 Phase 2: Policy Engine        ████████████████████ 100% ✅
-Phase 3: Rate Limiting        ░░░░░░░░░░░░░░░░░░░░   0% ⏳ NEXT
+Phase 2.5: Multi-Tenant/RL    ████████████████████ 100% ✅
+Phase 3: Billing Backend      ░░░░░░░░░░░░░░░░░░░░   0% ⏳ NEXT
 Phase 4: Agents               ░░░░░░░░░░░░░░░░░░░░   0% 🔜
 Phase 5: Multi-Region         ░░░░░░░░░░░░░░░░░░░░   0% 🔮
 
-TOTAL PROGRESS                ████████████░░░░░░░░  62%
+TOTAL PROGRESS                ████████████████░░░░  80%
 ```
 
 ---
 
-## ✅ Phase 2 Complete Summary
+## ✅ Completed Phases Summary
+
+### Phase 2: Policy Engine - COMPLETE (16/16 TASKS)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -176,6 +204,55 @@ WEEK 8: TESTING + ACCEPTANCE                     [4/4 tasks] ✅
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PHASE 2 COMPLETE:  16/16 tasks  |  7 days  |  242 tests  |  82.7% coverage
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+---
+
+### Phase 2.5: Multi-Tenant & Rate Limiting - COMPLETE (18/18 TASKS)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│   PHASE 2.5: MULTI-TENANT & RATE LIMITING - COMPLETE        │
+│                      (18/18 TASKS)                           │
+└─────────────────────────────────────────────────────────────┘
+
+WEEK 1 (9-10): MULTI-TENANT FOUNDATION           [5/5 tasks] ✅
+├─ P2.5-W1-T1: Tenant Hierarchy Schema   5h │ P0 │ ✅ COMPLETE
+├─ P2.5-W1-T2: Firestore Multi-Tenant    6h │ P0 │ ✅ COMPLETE
+├─ P2.5-W1-T3: Multi-Tenant Middleware   4h │ P0 │ ✅ COMPLETE
+├─ P2.5-W1-T4: BigQuery Usage Tracking   5h │ P0 │ ✅ COMPLETE
+└─ P2.5-W1-T5: Integration Tests         3h │ P0 │ ✅ COMPLETE
+                                        ──────────────
+                                         23h total
+                                         Tests: 162 passing (85%+ coverage)
+
+WEEK 2 (10-11): RATE LIMITING                    [7/7 tasks] ✅
+├─ P2.5-W2-T1: Redis STANDARD_HA Setup   4h │ P0 │ ✅ COMPLETE
+├─ P2.5-W2-T2: Hierarchical Limits       6h │ P0 │ ✅ COMPLETE
+├─ P2.5-W2-T3: Token Bucket Algorithm    5h │ P0 │ ✅ COMPLETE
+├─ P2.5-W2-T4: Rate Limit Headers        3h │ P0 │ ✅ COMPLETE
+├─ P2.5-W2-T5: Connection Pooling        4h │ P0 │ ✅ COMPLETE
+├─ P2.5-W2-T6: Cost Controls             3h │ P0 │ ✅ COMPLETE
+└─ P2.5-W2-T7: Integration Tests         4h │ P0 │ ✅ COMPLETE
+                                        ──────────────
+                                         29h total
+                                         Tests: 271 passing (85%+ coverage)
+
+PHASE 2.5.5 (11-12): CONTROL PLANE API           [6/6 tasks] ✅
+├─ P2.5.5-T1: Project Setup              3h │ P0 │ ✅ COMPLETE
+├─ P2.5.5-T2: Policy Management API      8h │ P0 │ ✅ COMPLETE
+├─ P2.5.5-T3: Canary & Rollback API      6h │ P0 │ ✅ COMPLETE
+├─ P2.5.5-T4: Analytics API              4h │ P0 │ ✅ COMPLETE
+├─ P2.5.5-T5: Auth & Security            5h │ P0 │ ✅ COMPLETE
+└─ P2.5.5-T6: Deployment Configs         4h │ P0 │ ✅ COMPLETE
+                                        ──────────────
+                                         30h total
+                                         Tests: 239 passing (85%+ coverage)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 2.5 COMPLETE:  18/18 tasks  |  25 hours  |  672 tests  |  85%+ coverage
+NEW SERVICE: Control Plane API (apx-control-api)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -292,21 +369,26 @@ PHASE 2 COMPLETE:  16/16 tasks  |  7 days  |  242 tests  |  82.7% coverage
 │                   TEAM PERFORMANCE                           │
 └─────────────────────────────────────────────────────────────┘
 
-TASKS COMPLETED:           62 tasks
-DAYS ELAPSED:              8 days
-VELOCITY:                  7.8 tasks/day
+TASKS COMPLETED:           80 tasks
+DAYS ELAPSED:              12 days
+VELOCITY:                  6.7 tasks/day
 PARALLEL EFFICIENCY:       8x (vs serial)
 
 BACKEND PHASE 2 RESULTS:   242 tests passing (100%)
 PHASE 2 COVERAGE:          82.7% average
+BACKEND PHASE 2.5 RESULTS: 672 tests passing (100%)
+PHASE 2.5 COVERAGE:        85%+ average
 CANARY THROUGHPUT:         1.1M+ req/s
 LOAD TEST RESULTS:         8.7k rps (174% of target)
 PORTAL TESTS:              292 tests passing
 LIGHTHOUSE SCORE:          96%
 
-SERVICES DEPLOYED:         9 services (+ Monitor)
+SERVICES DEPLOYED:         10 services (+ Monitor)
 INFRASTRUCTURE:            100% automated (Terraform)
 POLICY ENGINE:             Production ready ✅
+MULTI-TENANT SYSTEM:       Production ready ✅
+RATE LIMITING:             Production ready ✅
+CONTROL PLANE API:         Production ready ✅
 DOCUMENTATION:             Comprehensive
 
 ESTIMATED COMPLETION:      May 2026 (on track)
@@ -314,9 +396,9 @@ ESTIMATED COMPLETION:      May 2026 (on track)
 
 ---
 
-## ✅ Phase 2 Complete = Platform Core Ready
+## ✅ Phase 2.5 Complete = Enterprise Platform Ready
 
-Phase 2 is now complete! APX Platform now has:
+Phase 2.5 is now complete! APX Platform now has:
 
 ```
 ✅ Edge Gateway (Envoy)
@@ -326,42 +408,61 @@ Phase 2 is now complete! APX Platform now has:
 ✅ Observability (OTEL + Metrics)
 ✅ Load Balancer + WAF
 ✅ Developer Portal (9 pages)
-✅ Policy Compiler (OPA → WASM) - NEW IN PHASE 2
-✅ Policy Versioning (N/N-1) - NEW IN PHASE 2
-✅ Canary Rollouts - NEW IN PHASE 2
-✅ Auto-Rollback - NEW IN PHASE 2
-✅ GitOps Pipeline - NEW IN PHASE 2
-✅ CLI Tools (apx rollout/rollback/status) - NEW IN PHASE 2
+✅ Policy Compiler (OPA → WASM)
+✅ Policy Versioning (N/N-1)
+✅ Canary Rollouts
+✅ Auto-Rollback
+✅ GitOps Pipeline
+✅ CLI Tools (apx rollout/rollback/status)
+✅ Multi-Tenant Architecture - NEW IN PHASE 2.5
+✅ Hierarchical Rate Limiting - NEW IN PHASE 2.5
+✅ Redis STANDARD_HA - NEW IN PHASE 2.5
+✅ BigQuery Usage Tracking - NEW IN PHASE 2.5
+✅ Control Plane API - NEW IN PHASE 2.5
+✅ Policy Management API - NEW IN PHASE 2.5
+✅ Canary & Rollback API - NEW IN PHASE 2.5
+✅ Analytics API - NEW IN PHASE 2.5
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-= COMPLETE API MANAGEMENT PLATFORM 🚀
+= COMPLETE ENTERPRISE API PLATFORM 🚀
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 PRODUCTION READY:
 ✅ Production traffic handling
-✅ Multi-tenant customers
+✅ Multi-tenant customers (org → product → key)
 ✅ Enterprise deployments
 ✅ Policy-based governance
 ✅ Safe canary deployments
 ✅ Automatic rollback protection
+✅ Hierarchical rate limiting
+✅ Usage tracking & analytics
+✅ Control plane APIs
 
 NEXT UP:
-⏳ Phase 3: Rate Limiting (4 weeks)
+⏳ Phase 3: Billing Backend (2 weeks)
 🔜 Phase 4: AI Agents (4 weeks)
 🔮 Phase 5: Multi-Region (8 weeks)
 ```
 
 ---
 
-## 🎉 Phase 2 Complete!
+## 🎉 Phase 2.5 Complete!
 
-**Status:** All 16 tasks complete. Production ready.
+**Status:** All 18 tasks complete. Production ready.
+
+**Completed Phases:**
+- Phase 0: Foundation ✅
+- Phase 1: Backend Infrastructure ✅
+- Portal M1: Core ✅
+- Portal M2: Analytics ✅
+- Phase 2: Policy Engine ✅
+- Phase 2.5: Multi-Tenant & Rate Limiting ✅
 
 **Progress Tracker:** `/Users/agentsy/APILEE/docs/trackers/backend/APX_PROJECT_TRACKER.yaml`
 
-**Next Phase:** Phase 3 - Rate Limiting
+**Next Phase:** Phase 3 - Billing Backend
 
 ---
 
-*Last Updated: 2025-11-12*
+*Last Updated: 2025-11-13*
 *Generated with: Claude Code*

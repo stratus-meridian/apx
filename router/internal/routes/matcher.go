@@ -16,15 +16,15 @@ import (
 
 // RequestMessage represents a request to be processed by workers
 type RequestMessage struct {
-	RequestID      string            `json:"request_id"`
-	TenantID       string            `json:"tenant_id"`
-	TenantTier     string            `json:"tenant_tier"`
-	Route          string            `json:"route"`
-	Method         string            `json:"method"`
-	PolicyVersion  string            `json:"policy_version"`
-	Headers        map[string]string `json:"headers"`
-	Body           json.RawMessage   `json:"body"`
-	ReceivedAt     time.Time         `json:"received_at"`
+	RequestID     string            `json:"request_id"`
+	TenantID      string            `json:"tenant_id"`
+	TenantTier    string            `json:"tenant_tier"`
+	Route         string            `json:"route"`
+	Method        string            `json:"method"`
+	PolicyVersion string            `json:"policy_version"`
+	Headers       map[string]string `json:"headers"`
+	Body          json.RawMessage   `json:"body"`
+	ReceivedAt    time.Time         `json:"received_at"`
 }
 
 // Matcher handles route matching and message publishing
@@ -222,6 +222,21 @@ func (m *Matcher) Handle(w http.ResponseWriter, r *http.Request) {
 		policyVersion = "v1.0.0" // Default
 	}
 
+	var rawBody json.RawMessage
+	switch {
+	case len(bodyBytes) == 0:
+		rawBody = nil
+	case json.Valid(bodyBytes):
+		rawBody = json.RawMessage(bodyBytes)
+	default:
+		m.logger.Warn("invalid JSON body",
+			zap.String("request_id", requestID),
+			zap.String("content_type", r.Header.Get("Content-Type")),
+		)
+		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
+		return
+	}
+
 	// Build RequestMessage
 	msg := &RequestMessage{
 		RequestID:     requestID,
@@ -231,7 +246,7 @@ func (m *Matcher) Handle(w http.ResponseWriter, r *http.Request) {
 		Method:        r.Method,
 		PolicyVersion: policyVersion,
 		Headers:       extractHeaders(r),
-		Body:          json.RawMessage(bodyBytes),
+		Body:          rawBody,
 		ReceivedAt:    time.Now(),
 	}
 
