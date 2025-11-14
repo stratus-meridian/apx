@@ -10,13 +10,17 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
-	apxratelimit "github.com/apx/control/pkg/ratelimit"
-	"github.com/apx/router/internal/config"
-	"github.com/apx/router/internal/middleware"
-	"github.com/apx/router/internal/policy"
-	"github.com/apx/router/internal/routes"
-	"github.com/apx/router/pkg/observability"
-	"github.com/apx/router/pkg/status"
+	apxratelimit "github.com/stratus-meridian/apx-private/control/pkg/ratelimit"
+	"github.com/stratus-meridian/apx-private/control/tenant"
+	"github.com/stratus-meridian/apx-private/control/usage"
+	"github.com/stratus-meridian/apx/router/internal/auth"
+	"github.com/stratus-meridian/apx/router/internal/config"
+	"github.com/stratus-meridian/apx/router/internal/middleware"
+	"github.com/stratus-meridian/apx/router/internal/policy"
+	"github.com/stratus-meridian/apx/router/internal/routes"
+	"github.com/stratus-meridian/apx/router/pkg/health"
+	"github.com/stratus-meridian/apx/router/pkg/observability"
+	"github.com/stratus-meridian/apx/router/pkg/status"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
@@ -50,6 +54,7 @@ func main() {
 
 	// Initialize observability (OTEL, metrics) - make non-fatal in dev
 	shutdown, err := observability.Init(ctx, cfg, logger)
+	observabilityInit := err == nil
 	if err != nil {
 		logger.Warn("failed to initialize observability (continuing)", zap.Error(err))
 		shutdown = func() {} // no-op shutdown
@@ -103,6 +108,39 @@ func main() {
 		logger.Fatal("failed to initialize rate limiter", zap.Error(err))
 	}
 	defer rateLimiter.Close()
+
+	// Initialize quota enforcer for monthly quota limits
+	quotaEnforcer := apxratelimit.NewQuotaEnforcer(redisClient)
+
+	// Initialize tenant repository (Firestore)
+	tenantRepo, err := tenant.NewFirestoreRepository(ctx, cfg.ProjectID, tenant.DefaultRepositoryOptions())
+	if err != nil {
+		logger.Fatal("failed to initialize tenant repository", zap.Error(err))
+	}
+	defer tenantRepo.Close()
+
+	// Initialize tenant resolver with Redis caching
+	tenantResolver := auth.NewFirestoreTenantResolver(tenantRepo, redisClient, logger)
+	defer tenantResolver.Close()
+
+	// Initialize usage tracker for BigQuery analytics
+	var usageTracker usage.UsageTracker
+	usageConfig := usage.DefaultTrackerConfig(cfg.ProjectID)
+	usageConfig.Dataset = "usage"
+	usageConfig.Table = "events"
+
+	tracker, err := usage.NewBigQueryUsageTracker(ctx, usageConfig, logger)
+	if err != nil {
+		logger.Warn("failed to initialize BigQuery usage tracker, using mock tracker",
+			zap.Error(err))
+		usageTracker = usage.NewMockUsageTracker(logger)
+	} else {
+		logger.Info("BigQuery usage tracker initialized successfully",
+			zap.String("dataset", usageConfig.Dataset),
+			zap.String("table", usageConfig.Table))
+		usageTracker = tracker
+		defer tracker.Close(ctx)
+	}
 
 	// Initialize Pub/Sub client and topic
 	var pubsubTopic *pubsub.Topic
@@ -171,19 +209,67 @@ func main() {
 	syncProxyMulti := routes.NewSyncProxyMulti(routeConfigs, logger)
 	defer syncProxyMulti.Close()
 
+	// Initialize dynamic config loader (polls control-API for gateway configs)
+	controlAPIURL := os.Getenv("CONTROL_API_URL")
+	tenantID := os.Getenv("TENANT_ID")
+
+	var dynamicLoader *config.DynamicLoader
+	if controlAPIURL != "" && tenantID != "" {
+		logger.Info("initializing dynamic config loader",
+			zap.String("control_api_url", controlAPIURL),
+			zap.String("tenant_id", tenantID))
+
+		dynamicLoader = config.NewDynamicLoader(config.DynamicLoaderConfig{
+			ControlAPIURL:  controlAPIURL,
+			TenantID:       tenantID,
+			ReloadInterval: 60 * time.Second,
+			Logger:         logger,
+			OnChange: func(newRoutes []config.RouteConfig) error {
+				// Reload sync proxy with new routes
+				logger.Info("reloading sync proxy with new routes",
+					zap.Int("route_count", len(newRoutes)))
+
+				// Create new sync proxy with updated routes
+				newProxy := routes.NewSyncProxyMulti(newRoutes, logger)
+
+				// Replace the old proxy (graceful swap)
+				// Note: We can't close the old proxy immediately as there might be
+				// in-flight requests. In production, use a more sophisticated approach.
+				oldProxy := syncProxyMulti
+				syncProxyMulti = newProxy
+
+				// Close old proxy after a grace period
+				go func() {
+					time.Sleep(30 * time.Second)
+					oldProxy.Close()
+				}()
+
+				return nil
+			},
+		})
+
+		// Start dynamic loader in background
+		go func() {
+			if err := dynamicLoader.Start(ctx); err != nil {
+				logger.Error("dynamic config loader stopped", zap.Error(err))
+			}
+		}()
+	} else {
+		logger.Info("dynamic config loader not enabled (set CONTROL_API_URL and TENANT_ID to enable)")
+	}
+
 	// Create HTTP router
 	r := mux.NewRouter()
 
-	// Health check endpoint
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","service":"apx-router"}`))
-	}).Methods(http.MethodGet)
+	// Initialize health checker with component clients
+	healthChecker := health.NewChecker(policyStore, pubsubTopic, observabilityInit, logger)
+
+	// Health check endpoint - matches portal expectations
+	r.HandleFunc("/health", healthChecker.Handler()).Methods(http.MethodGet)
 
 	// Readiness check (verifies policy store is ready)
 	r.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		if policyStore.IsReady() {
+		if policyStore != nil && policyStore.IsReady() {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"status":"ready"}`))
 		} else {
@@ -201,13 +287,24 @@ func main() {
 
 	// Main routing handler
 	// Supports both sync (direct proxy) and async (pub/sub) modes
-	// Note: Rate limiting is applied AFTER tenant context extraction
+	// Middleware order:
+	//   1. RequestID - Generate unique request ID
+	//   2. TenantContext - Resolve tenant from API key (security-critical)
+	//   3. QuotaEnforcement - Check monthly quota limits (returns 402 if exceeded)
+	//   4. RateLimit - Check per-minute rate limits (returns 429 if exceeded)
+	//   5. PolicyVersionTag - Add policy version metadata
+	//   6. UsageTracker - Track usage events to BigQuery (async, non-blocking)
+	//   7. Metrics - Record metrics
+	//   8. Logging - Log request details
+	//   9. Tracing - Add distributed tracing
 	asyncHandler := middleware.Chain(
 		http.HandlerFunc(routeMatcher.Handle),
 		middleware.RequestID(logger),
-		middleware.TenantContext(logger),
-		middleware.RateLimit(rateLimiter, logger), // Token bucket rate limiting
+		middleware.TenantContext(tenantResolver, logger), // Secure tenant resolution
+		middleware.QuotaEnforcement(quotaEnforcer, logger), // Monthly quota enforcement
+		middleware.RateLimit(rateLimiter, logger), // Per-minute rate limiting
 		middleware.PolicyVersionTag(policyStore, logger),
+		middleware.UsageTracker(usageTracker, logger), // BigQuery usage tracking
 		middleware.Metrics(),
 		middleware.Logging(logger),
 		middleware.Tracing(),
@@ -220,9 +317,11 @@ func main() {
 		middleware.Chain(
 			syncProxyMulti.HandleWithFallback(asyncHandler),
 			middleware.RequestID(logger),
-			middleware.TenantContext(logger),
-			middleware.RateLimit(rateLimiter, logger),
+			middleware.TenantContext(tenantResolver, logger), // Secure tenant resolution
+			middleware.QuotaEnforcement(quotaEnforcer, logger), // Monthly quota enforcement
+			middleware.RateLimit(rateLimiter, logger), // Per-minute rate limiting
 			middleware.PolicyVersionTag(policyStore, logger),
+			middleware.UsageTracker(usageTracker, logger), // BigQuery usage tracking
 			middleware.Metrics(),
 			middleware.Logging(logger),
 			middleware.Tracing(),

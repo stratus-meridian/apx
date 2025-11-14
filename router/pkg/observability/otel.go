@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/apx/router/internal/config"
+	"github.com/stratus-meridian/apx/router/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"

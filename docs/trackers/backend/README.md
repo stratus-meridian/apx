@@ -104,3 +104,21 @@ M2-T4-004: E2E Acceptance (8h)
 ---
 
 **Ready to start Phase 2!** 🚀
+
+---
+
+## 🆕 **NEW: Control-Plane API Enhancement**
+
+**[CONTROL_PLANE_API_TRACKER.yaml](./CONTROL_PLANE_API_TRACKER.yaml)** - Missing APIs for Portal Unified Vision
+
+Implements 4 new control-plane APIs (11-15 days):
+- ✨ CP-T1: Artifacts Registry API (1 day)
+- ✨ CP-T2: Gateways Management API (4 days)
+- ✨ CP-T3: Security & Abuse API (3.5 days)
+- ✨ CP-T4: Runtime Inventory API (2.5 days)
+
+**Status:** Not Started | **Priority:** P0
+
+**Runs in parallel with:** Portal Multi-Tenancy Enhancement (5 days)
+
+See [`../PARALLEL_EXECUTION_PLAN.md`](../PARALLEL_EXECUTION_PLAN.md) for full coordination plan.

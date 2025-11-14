@@ -1,4 +1,4 @@
-module github.com/apx/tests/integration
+module github.com/stratus-meridian/apx/tests/integration
 
 go 1.22
 

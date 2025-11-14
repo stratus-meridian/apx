@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/apx/control/tenant"
+	"github.com/stratus-meridian/apx-private/control/tenant"
+	pkgauth "github.com/stratus-meridian/apx/router/pkg/auth"
 	"go.uber.org/zap"
 )
 
@@ -15,39 +16,56 @@ const (
 	TenantContextKey contextKey = "apx.tenant"
 )
 
-// TenantContext extracts tenant information from headers
-// (previously set by Envoy WASM filter or API key lookup)
-func TenantContext(logger *zap.Logger) Middleware {
+// TenantResolver is the interface for resolving tenants from API keys
+type TenantResolver interface {
+	ResolveTenant(ctx context.Context, apiKey string) (*tenant.Tenant, error)
+	GetDefaultTenant(ctx context.Context) *tenant.Tenant
+}
+
+// TenantContext extracts tenant information from API keys (secure resolution)
+// SECURITY: This middleware does NOT trust client-supplied X-Tenant-* headers.
+// Tenant context is resolved exclusively from validated API keys.
+func TenantContext(resolver TenantResolver, logger *zap.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract tenant ID from header (set by edge WASM filter)
-			tenantID := r.Header.Get("X-Tenant-ID")
-			tenantTier := r.Header.Get("X-Tenant-Tier")
+			ctx := r.Context()
+			var tenantCtx *tenant.Tenant
 
-			// If not present, extract from JWT payload or API key
-			if tenantID == "" {
-				// TODO: Implement JWT/API key extraction
-				tenantID = "unknown"
-				tenantTier = "free"
+			// Extract API key from Authorization header
+			apiKey, err := pkgauth.ExtractAPIKey(r)
+			if err == nil && apiKey != "" {
+				// Resolve tenant from API key
+				tenantCtx, err = resolver.ResolveTenant(ctx, apiKey)
+				if err != nil {
+					// Invalid or not found API key -> return 401 Unauthorized
+					logger.Warn("failed to resolve tenant from API key",
+						zap.Error(err),
+						zap.String("path", r.URL.Path))
+
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write([]byte(`{"error":"unauthorized","message":"Invalid or expired API key"}`))
+					return
+				}
+
+				logger.Debug("tenant resolved from API key",
+					zap.String("tenant_id", tenantCtx.ResourceID),
+					zap.String("tier", string(tenantCtx.Organization.Tier)),
+					zap.String("org_id", tenantCtx.Organization.ID))
+			} else {
+				// No API key provided -> use default tenant with restrictive quotas
+				tenantCtx = resolver.GetDefaultTenant(ctx)
+				logger.Debug("using default tenant (no API key provided)")
 			}
 
 			// Add to request context
-			ctx := context.WithValue(r.Context(), TenantIDKey, tenantID)
-			ctx = context.WithValue(ctx, TenantTierKey, tenantTier)
-
-			// Build lightweight tenant context for downstream middleware
-			tenantCtx := buildTenantContext(tenantID, tenantTier)
+			ctx = context.WithValue(ctx, TenantIDKey, tenantCtx.ResourceID)
+			ctx = context.WithValue(ctx, TenantTierKey, string(tenantCtx.Organization.Tier))
+			ctx = context.WithValue(ctx, TenantContextKey, tenantCtx)
 
 			// Add to response headers for debugging
-			w.Header().Set("X-Tenant-ID", tenantID)
-			w.Header().Set("X-Tenant-Tier", tenantTier)
-
-			logger.Debug("tenant context extracted",
-				zap.String("tenant_id", tenantID),
-				zap.String("tenant_tier", tenantTier),
-			)
-
-			ctx = context.WithValue(ctx, TenantContextKey, tenantCtx)
+			w.Header().Set("X-Tenant-ID", tenantCtx.ResourceID)
+			w.Header().Set("X-Tenant-Tier", string(tenantCtx.Organization.Tier))
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

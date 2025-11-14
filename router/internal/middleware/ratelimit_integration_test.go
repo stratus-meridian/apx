@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apx/control/pkg/ratelimit"
-	"github.com/apx/control/tenant"
+	"github.com/stratus-meridian/apx-private/control/pkg/ratelimit"
+	"github.com/stratus-meridian/apx-private/control/tenant"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

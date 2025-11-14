@@ -11,6 +11,7 @@ RUN apk add --no-cache git make
 COPY router/go.mod router/go.sum ./router/
 COPY .private/control/pkg/ratelimit ./.private/control/pkg/ratelimit
 COPY .private/control/tenant ./.private/control/tenant
+COPY .private/control/usage ./.private/control/usage
 
 WORKDIR /build/router
 RUN go mod download

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/apx/router/internal/middleware"
+	"github.com/stratus-meridian/apx/router/internal/middleware"
 )
 
 // Example demonstrates basic usage of the PolicyVersion middleware

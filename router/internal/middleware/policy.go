@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/apx/router/internal/policy"
+	"github.com/stratus-meridian/apx/router/internal/policy"
 	"go.uber.org/zap"
 )
 

@@ -1,4 +1,4 @@
-module github.com/apx/control
+module github.com/stratus-meridian/apx/control
 
 go 1.25.4
 

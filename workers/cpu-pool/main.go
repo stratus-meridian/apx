@@ -47,10 +47,12 @@ func main() {
 	region := getEnv("GCP_REGION", "us-central1")
 	subscriptionID := getEnv("PUBSUB_SUBSCRIPTION", "apx-workers-us")
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	redisPassword := getEnv("REDIS_PASSWORD", "")
 
 	// Initialize Redis
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: redisAddr,
+		Addr:     redisAddr,
+		Password: redisPassword,
 	})
 
 	if err := redisClient.Ping(ctx).Err(); err != nil {

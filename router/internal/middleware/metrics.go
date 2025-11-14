@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/apx/router/internal/metrics"
+	"github.com/stratus-meridian/apx/router/internal/metrics"
 )
 
 // Metrics records HTTP request metrics using Prometheus

@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/apx/router/pkg/status"
 	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
+	"github.com/stratus-meridian/apx/router/pkg/status"
 	"go.uber.org/zap"
 )
 
@@ -28,11 +28,12 @@ func main() {
 	// Get configuration from environment
 	port := getEnv("PORT", "8083")
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	redisPassword := getEnv("REDIS_PASSWORD", "")
 
 	// Initialize Redis client
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
-		Password:     "",
+		Password:     redisPassword,
 		DB:           0,
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,

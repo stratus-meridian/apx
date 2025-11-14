@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apx/control/pkg/ratelimit"
-	"github.com/apx/control/tenant"
+	"github.com/stratus-meridian/apx-private/control/pkg/ratelimit"
+	"github.com/stratus-meridian/apx-private/control/tenant"
 )
 
 // PaymentRequiredResponse represents an HTTP 402 Payment Required response

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apx/router/internal/middleware"
+	"github.com/stratus-meridian/apx/router/internal/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

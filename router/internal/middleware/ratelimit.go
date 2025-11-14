@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/apx/control/pkg/ratelimit"
+	"github.com/stratus-meridian/apx-private/control/pkg/ratelimit"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

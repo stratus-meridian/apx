@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/apx/router/pkg/status"
+	"github.com/stratus-meridian/apx/router/pkg/status"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )

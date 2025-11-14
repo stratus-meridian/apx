@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
-	"github.com/apx/router/internal/middleware"
-	"github.com/apx/router/pkg/status"
+	"github.com/stratus-meridian/apx/router/internal/middleware"
+	"github.com/stratus-meridian/apx/router/pkg/status"
 	"go.uber.org/zap"
 )
 

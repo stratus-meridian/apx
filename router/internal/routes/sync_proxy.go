@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/apx/router/internal/config"
-	"github.com/apx/router/internal/middleware"
-	"github.com/apx/router/pkg/proxy"
+	"github.com/stratus-meridian/apx/router/internal/config"
+	"github.com/stratus-meridian/apx/router/internal/middleware"
+	"github.com/stratus-meridian/apx/router/pkg/proxy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"

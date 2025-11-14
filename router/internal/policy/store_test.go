@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apx/router/internal/config"
+	"github.com/stratus-meridian/apx/router/internal/config"
 	"go.uber.org/zap"
 )
 
