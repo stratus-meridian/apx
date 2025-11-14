@@ -1,0 +1,370 @@
+# PolicyBundle CRD Schema
+# Defines authentication, authorization, quotas, transforms, and observability policies
+
+apiVersion: apx/v1
+kind: Schema
+metadata:
+  name: PolicyBundle
+  version: v1
+spec:
+  description: "Policy bundle with versioning, auth, quotas, transforms, and observability"
+
+  schema:
+    type: object
+    required: [apiVersion, kind, metadata, spec]
+
+    properties:
+      apiVersion:
+        type: string
+        enum: [apx/v1]
+
+      kind:
+        type: string
+        enum: [PolicyBundle]
+
+      metadata:
+        type: object
+        required: [name, version]
+        properties:
+          name:
+            type: string
+            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            description: "Policy bundle name"
+
+          version:
+            type: string
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            description: "Semantic version (e.g., 1.2.0)"
+
+          compat:
+            type: string
+            enum: [backward, breaking]
+            default: backward
+            description: "Compatibility with previous version"
+
+          labels:
+            type: object
+            additionalProperties:
+              type: string
+
+      spec:
+        type: object
+        properties:
+
+          auth:
+            type: object
+            description: "Authentication configuration"
+            properties:
+              required:
+                type: boolean
+                default: true
+
+              jwt:
+                type: object
+                properties:
+                  jwksUri:
+                    type: string
+                    format: uri
+                    description: "JWKS endpoint for JWT validation"
+
+                  issuer:
+                    type: string
+                    description: "Expected JWT issuer"
+
+                  audience:
+                    type: array
+                    items:
+                      type: string
+                    description: "Expected JWT audiences"
+
+                  clockSkew:
+                    type: string
+                    default: "30s"
+                    description: "Allowed clock skew for exp/nbf"
+
+              apiKey:
+                type: object
+                properties:
+                  header:
+                    type: string
+                    default: "X-API-Key"
+
+                  queryParam:
+                    type: string
+                    default: "api_key"
+
+              oauth2:
+                type: object
+                properties:
+                  introspectionUri:
+                    type: string
+                    format: uri
+
+                  clientId:
+                    type: string
+
+                  clientSecretRef:
+                    type: string
+                    description: "Secret Manager reference"
+
+              mtls:
+                type: object
+                properties:
+                  trustStore:
+                    type: string
+                    description: "CA certificate bundle"
+
+                  requireClientCert:
+                    type: boolean
+                    default: true
+
+          authorization:
+            type: object
+            description: "Authorization rules (OPA policies)"
+            properties:
+              rego:
+                type: string
+                description: "Inline Rego policy"
+
+              regoRef:
+                type: string
+                description: "Reference to external Rego file"
+
+              defaultAllow:
+                type: boolean
+                default: false
+                description: "Allow by default if policy doesn't match"
+
+          quotas:
+            type: object
+            properties:
+              perTenant:
+                type: object
+                properties:
+                  window:
+                    type: string
+                    pattern: "^[0-9]+(s|m|h)$"
+                    description: "Time window (e.g., 60s, 1h)"
+
+                  limit:
+                    type: integer
+                    minimum: 1
+                    description: "Max requests per window"
+
+              perKey:
+                type: object
+                properties:
+                  window:
+                    type: string
+                  limit:
+                    type: integer
+
+              perIP:
+                type: object
+                properties:
+                  window:
+                    type: string
+                  limit:
+                    type: integer
+
+          rateLimit:
+            type: object
+            properties:
+              algorithm:
+                type: string
+                enum: [token-bucket, sliding-window, fixed-window]
+                default: sliding-window
+
+              redis:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                    description: "Use Redis for distributed rate limiting"
+
+                  keyPrefix:
+                    type: string
+                    default: "apx:rl:"
+
+          transforms:
+            type: array
+            description: "Request/response transforms (WASM filters)"
+            items:
+              type: object
+              required: [wasm]
+              properties:
+                wasm:
+                  type: string
+                  pattern: "^[a-z0-9-]+@sha256:[a-f0-9]{64}$"
+                  description: "WASM module reference with SHA256 hash"
+
+                config:
+                  type: object
+                  description: "Module-specific configuration"
+
+                phase:
+                  type: string
+                  enum: [pre-auth, post-auth, pre-backend, post-backend]
+                  default: post-auth
+
+          observability:
+            type: object
+            properties:
+              sampleRate:
+                type: number
+                minimum: 0.0
+                maximum: 1.0
+                default: 0.01
+                description: "Log sampling rate"
+
+              piiSafe:
+                type: boolean
+                default: true
+                description: "Redact PII from logs"
+
+              piiFields:
+                type: array
+                items:
+                  type: string
+                description: "JSON paths to redact (e.g., $.email, $.ssn)"
+
+              metrics:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+
+                  labels:
+                    type: array
+                    items:
+                      type: string
+                    description: "Custom metric labels (low-cardinality only)"
+
+              tracing:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+
+                  sampleRate:
+                    type: number
+                    default: 0.05
+
+                  alwaysTrace:
+                    type: array
+                    items:
+                      type: string
+                    description: "Always trace these tenant IDs (for debugging)"
+
+          security:
+            type: object
+            properties:
+              ipAllowlist:
+                type: array
+                items:
+                  type: string
+                description: "CIDR blocks allowed"
+
+              ipDenylist:
+                type: array
+                items:
+                  type: string
+                description: "CIDR blocks denied"
+
+              requestSizeLimit:
+                type: string
+                default: "10MB"
+                description: "Max request body size"
+
+              validateContentType:
+                type: boolean
+                default: true
+
+              csrfProtection:
+                type: boolean
+                default: false
+
+          cache:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+
+              ttl:
+                type: string
+                pattern: "^[0-9]+(s|m|h)$"
+                description: "Cache TTL"
+
+              varyBy:
+                type: array
+                items:
+                  type: string
+                  enum: [tenant, key, path, query, header]
+                description: "Cache key components"
+
+              redis:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+
+examples:
+  - name: payments-policy
+    value:
+      apiVersion: apx/v1
+      kind: PolicyBundle
+      metadata:
+        name: pb-pay-v1
+        version: 1.2.0
+        compat: backward
+        labels:
+          product: payments
+          compliance: pci-dss
+      spec:
+        auth:
+          required: true
+          jwt:
+            jwksUri: https://idp.example.com/.well-known/jwks.json
+            issuer: https://idp.example.com
+            audience: [payments-api]
+            clockSkew: 30s
+        authorization:
+          rego: |
+            package apx.authz
+            default allow = false
+            allow {
+              input.jwt.scope[_] == "payments:write"
+              input.tenant.plan == "pro"
+            }
+        quotas:
+          perTenant:
+            window: 60s
+            limit: 10000
+          perKey:
+            window: 1s
+            limit: 100
+        transforms:
+          - wasm: redact-pii@sha256:abc123...
+            phase: post-auth
+            config:
+              fields: [email, ssn, credit_card]
+        observability:
+          sampleRate: 0.02
+          piiSafe: true
+          piiFields: [$.email, $.payment.card_number]
+          tracing:
+            enabled: true
+            sampleRate: 0.05
+        security:
+          requestSizeLimit: 5MB
+          validateContentType: true
+          ipAllowlist: [10.0.0.0/8, 172.16.0.0/12]
+        cache:
+          enabled: true
+          ttl: 5m
+          varyBy: [tenant, path]

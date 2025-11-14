@@ -1,0 +1,239 @@
+# Product CRD Schema
+# Defines an API product with plans, quotas, isolation, and residency requirements
+
+apiVersion: apx/v1
+kind: Schema
+metadata:
+  name: Product
+  version: v1
+spec:
+  description: "API Product definition with multi-tenancy, quotas, and regional affinity"
+
+  schema:
+    type: object
+    required: [apiVersion, kind, metadata, spec]
+
+    properties:
+      apiVersion:
+        type: string
+        enum: [apx/v1]
+        description: "API version (always apx/v1)"
+
+      kind:
+        type: string
+        enum: [Product]
+        description: "Resource kind (always Product)"
+
+      metadata:
+        type: object
+        required: [name]
+        properties:
+          name:
+            type: string
+            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            description: "Product name (DNS-label compatible)"
+
+          regionAffinity:
+            type: array
+            items:
+              type: string
+              enum: [us, eu, asia, global]
+            default: [global]
+            description: "Preferred regions for this product"
+
+          labels:
+            type: object
+            additionalProperties:
+              type: string
+            description: "Key-value labels for organization"
+
+      spec:
+        type: object
+        required: [plans]
+        properties:
+
+          description:
+            type: string
+            description: "Human-readable product description"
+
+          plans:
+            type: array
+            minItems: 1
+            description: "Pricing/quota plans for this product"
+            items:
+              type: object
+              required: [name, rateLimit]
+              properties:
+                name:
+                  type: string
+                  enum: [free, starter, pro, enterprise]
+                  description: "Plan tier name"
+
+                rateLimit:
+                  type: object
+                  required: [rps]
+                  properties:
+                    rps:
+                      type: integer
+                      minimum: 1
+                      maximum: 100000
+                      description: "Requests per second limit"
+
+                    burst:
+                      type: integer
+                      minimum: 1
+                      description: "Burst allowance (tokens)"
+
+                    window:
+                      type: string
+                      pattern: "^[0-9]+(s|m|h)$"
+                      default: "1s"
+                      description: "Time window for rate limit (e.g., 60s, 5m)"
+
+                quota:
+                  type: object
+                  properties:
+                    daily:
+                      type: integer
+                      minimum: 1
+                      description: "Daily request quota"
+
+                    monthly:
+                      type: integer
+                      minimum: 1
+                      description: "Monthly request quota"
+
+                concurrency:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+                  description: "Max concurrent requests per tenant"
+
+                isolation:
+                  type: string
+                  enum: [shared, namespace, dedicated]
+                  default: shared
+                  description: |
+                    Isolation level:
+                    - shared: Multi-tenant workers (cost-efficient)
+                    - namespace: Logical isolation (separate queues/pools)
+                    - dedicated: Physical isolation (dedicated infra)
+
+                residency:
+                  type: string
+                  enum: [US, EU, ASIA, GLOBAL]
+                  default: GLOBAL
+                  description: "Data residency requirement (GDPR, etc.)"
+
+                features:
+                  type: array
+                  items:
+                    type: string
+                  description: "Feature flags enabled for this plan"
+
+                slo:
+                  type: object
+                  properties:
+                    availability:
+                      type: string
+                      pattern: "^99\\.9+%$"
+                      description: "Availability target (e.g., 99.9%)"
+
+                    latency_p99_ms:
+                      type: integer
+                      minimum: 10
+                      description: "p99 latency target in milliseconds"
+
+          authentication:
+            type: object
+            properties:
+              required:
+                type: boolean
+                default: true
+
+              methods:
+                type: array
+                items:
+                  type: string
+                  enum: [apikey, jwt, oauth2, mtls]
+                default: [apikey]
+
+          observability:
+            type: object
+            properties:
+              logSampleRate:
+                type: number
+                minimum: 0.0
+                maximum: 1.0
+                default: 0.01
+                description: "Fraction of requests to log (0.01 = 1%)"
+
+              traceSampleRate:
+                type: number
+                minimum: 0.0
+                maximum: 1.0
+                default: 0.05
+                description: "Fraction of requests to trace"
+
+              piiSafe:
+                type: boolean
+                default: true
+                description: "Redact PII from logs/traces"
+
+examples:
+  - name: payments-product
+    value:
+      apiVersion: apx/v1
+      kind: Product
+      metadata:
+        name: payments
+        regionAffinity: [us, eu]
+        labels:
+          team: platform
+          compliance: pci-dss
+      spec:
+        description: "Payment processing API with multi-region support"
+        plans:
+          - name: free
+            rateLimit:
+              rps: 10
+              burst: 20
+            quota:
+              daily: 1000
+            isolation: shared
+            residency: GLOBAL
+
+          - name: pro
+            rateLimit:
+              rps: 200
+              burst: 400
+            quota:
+              daily: 100000
+              monthly: 2000000
+            concurrency: 50
+            isolation: namespace
+            residency: US
+            slo:
+              availability: "99.95%"
+              latency_p99_ms: 100
+
+          - name: enterprise
+            rateLimit:
+              rps: 5000
+              burst: 10000
+            concurrency: 500
+            isolation: dedicated
+            residency: EU
+            features: [priority-support, custom-slos]
+            slo:
+              availability: "99.99%"
+              latency_p99_ms: 50
+
+        authentication:
+          required: true
+          methods: [jwt, oauth2]
+
+        observability:
+          logSampleRate: 0.05
+          traceSampleRate: 0.1
+          piiSafe: true

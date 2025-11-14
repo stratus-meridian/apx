@@ -179,3 +179,8 @@ $RECYCLE.BIN/
 
 # IDE history
 .history/
+
+# Open-core documentation (internal use only)
+OPEN_CORE_*.md
+DEMO_ENVIRONMENT_PLAN.md
+INVESTOR_READINESS_CHECKLIST.md

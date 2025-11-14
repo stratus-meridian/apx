@@ -1,0 +1,33 @@
+# Git files
+.git
+.gitignore
+
+# Build artifacts
+router
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Examples (not needed in container)
+examples/
+
+# Test files
+*_test.go
