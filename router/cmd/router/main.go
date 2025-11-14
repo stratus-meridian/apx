@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	apxratelimit "github.com/apx/control/pkg/ratelimit"
 	"github.com/apx/router/internal/config"
 	"github.com/apx/router/internal/middleware"
 	"github.com/apx/router/internal/policy"
-	"github.com/apx/router/internal/ratelimit"
 	"github.com/apx/router/internal/routes"
 	"github.com/apx/router/pkg/observability"
 	"github.com/apx/router/pkg/status"
@@ -93,7 +93,16 @@ func main() {
 	statusStore := status.NewRedisStore(redisClient, 24*time.Hour)
 
 	// Initialize rate limiter with token bucket algorithm
-	rateLimiter := ratelimit.NewRedisLimiter(redisClient, logger)
+	rlConfig := apxratelimit.DefaultConfig()
+	rlConfig.RedisAddr = cfg.RedisAddr
+	rlConfig.RedisPassword = cfg.RedisPassword
+	rlConfig.RedisDB = cfg.RedisDB
+
+	rateLimiter, err := apxratelimit.NewRedisLimiter(rlConfig)
+	if err != nil {
+		logger.Fatal("failed to initialize rate limiter", zap.Error(err))
+	}
+	defer rateLimiter.Close()
 
 	// Initialize Pub/Sub client and topic
 	var pubsubTopic *pubsub.Topic

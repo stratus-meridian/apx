@@ -1,6 +1,6 @@
 module github.com/apx/router
 
-go 1.23
+go 1.25
 
 require (
 	cloud.google.com/go/firestore v1.20.0
@@ -67,6 +67,6 @@ require (
 )
 
 replace (
-	github.com/apx/control/pkg/ratelimit => ../control/pkg/ratelimit
+	github.com/apx/control/pkg/ratelimit => ../.private/control/pkg/ratelimit
 	github.com/apx/control/tenant => ../.private/control/tenant
 )

@@ -1,6 +1,6 @@
 module github.com/apx/streaming-aggregator
 
-go 1.22
+go 1.25
 
 require (
 	github.com/apx/router v0.0.0

@@ -1,18 +1,22 @@
 # Multi-stage Dockerfile for APX Router Service
 # Stage 1: Build the Go binary
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
 
 # Install build dependencies
 RUN apk add --no-cache git make
 
-# Copy go mod files first (for better caching)
-COPY go.mod go.sum ./
+# Copy module files and local replacements before downloading deps
+COPY router/go.mod router/go.sum ./router/
+COPY .private/control/pkg/ratelimit ./.private/control/pkg/ratelimit
+COPY .private/control/tenant ./.private/control/tenant
+
+WORKDIR /build/router
 RUN go mod download
 
-# Copy source code
-COPY . .
+# Copy router source
+COPY router/ .
 
 # Tidy dependencies and build
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o router ./cmd/router
@@ -26,7 +30,7 @@ RUN apk --no-cache add ca-certificates curl
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /build/router .
+COPY --from=builder /build/router/router .
 
 # Add non-root user
 RUN addgroup -g 1000 appuser && \
