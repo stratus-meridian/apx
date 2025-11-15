@@ -48,14 +48,19 @@ func TenantContext(resolver TenantResolver, logger *zap.Logger) Middleware {
 					return
 				}
 
-				logger.Debug("tenant resolved from API key",
-					zap.String("tenant_id", tenantCtx.ResourceID),
-					zap.String("tier", string(tenantCtx.Organization.Tier)),
-					zap.String("org_id", tenantCtx.Organization.ID))
+					logger.Debug("tenant resolved from API key",
+						zap.String("tenant_id", tenantCtx.ResourceID),
+						zap.String("tier", string(tenantCtx.Organization.Tier)),
+						zap.String("org_id", tenantCtx.Organization.ID))
 			} else {
-				// No API key provided -> use default tenant with restrictive quotas
-				tenantCtx = resolver.GetDefaultTenant(ctx)
-				logger.Debug("using default tenant (no API key provided)")
+				// No API key provided -> return 401 Unauthorized
+				logger.Warn("missing API key for tenant context",
+					zap.String("path", r.URL.Path))
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"unauthorized","message":"API key required"}`))
+				return
 			}
 
 			// Add to request context

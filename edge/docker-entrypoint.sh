@@ -12,8 +12,8 @@ echo "Starting APX Edge Gateway..."
 echo "Router Host: ${ROUTER_HOST}"
 echo "Router URL: ${ROUTER_URL}"
 
-# Substitute environment variables in config
-envsubst '${ROUTER_HOST}' < /etc/envoy/envoy-cloud.yaml > /tmp/envoy-runtime.yaml
+# Substitute environment variables in config (router host + URL for Lua filter)
+envsubst '${ROUTER_HOST} ${ROUTER_URL}' < /etc/envoy/envoy-cloud.yaml > /tmp/envoy-runtime.yaml
 
 echo "Envoy configuration prepared. Starting Envoy..."
 

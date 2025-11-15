@@ -261,6 +261,12 @@ func main() {
 	// Create HTTP router
 	r := mux.NewRouter()
 
+	// Enable detailed per-middleware timing logs when requested.
+	debugMiddleware := middleware.IsDebugEnabled()
+	if debugMiddleware {
+		logger.Info("ROUTER_DEBUG_MIDDLEWARE enabled - middleware step timing will be logged")
+	}
+
 	// Initialize health checker with component clients
 	healthChecker := health.NewChecker(policyStore, pubsubTopic, observabilityInit, logger)
 
@@ -299,15 +305,15 @@ func main() {
 	//   9. Tracing - Add distributed tracing
 	asyncHandler := middleware.Chain(
 		http.HandlerFunc(routeMatcher.Handle),
-		middleware.RequestID(logger),
-		middleware.TenantContext(tenantResolver, logger), // Secure tenant resolution
-		middleware.QuotaEnforcement(quotaEnforcer, logger), // Monthly quota enforcement
-		middleware.RateLimit(rateLimiter, logger), // Per-minute rate limiting
-		middleware.PolicyVersionTag(policyStore, logger),
-		middleware.UsageTracker(usageTracker, logger), // BigQuery usage tracking
-		middleware.Metrics(),
-		middleware.Logging(logger),
-		middleware.Tracing(),
+		middleware.WithStepLogging("RequestID", logger, middleware.RequestID(logger)),
+		middleware.WithStepLogging("TenantContext", logger, middleware.TenantContext(tenantResolver, logger)), // Secure tenant resolution
+		middleware.WithStepLogging("QuotaEnforcement", logger, middleware.QuotaEnforcement(quotaEnforcer, logger)), // Monthly quota enforcement
+		middleware.WithStepLogging("RateLimit", logger, middleware.RateLimit(rateLimiter, logger)), // Per-minute rate limiting
+		middleware.WithStepLogging("PolicyVersionTag", logger, middleware.PolicyVersionTag(policyStore, logger)),
+		middleware.WithStepLogging("UsageTracker", logger, middleware.UsageTracker(usageTracker, logger)), // BigQuery usage tracking
+		middleware.WithStepLogging("Metrics", logger, middleware.Metrics()),
+		middleware.WithStepLogging("Logging", logger, middleware.Logging(logger)),
+		middleware.WithStepLogging("Tracing", logger, middleware.Tracing()),
 	)
 
 	// Use sync proxy with fallback to async
@@ -316,15 +322,15 @@ func main() {
 	r.PathPrefix("/").Handler(
 		middleware.Chain(
 			syncProxyMulti.HandleWithFallback(asyncHandler),
-			middleware.RequestID(logger),
-			middleware.TenantContext(tenantResolver, logger), // Secure tenant resolution
-			middleware.QuotaEnforcement(quotaEnforcer, logger), // Monthly quota enforcement
-			middleware.RateLimit(rateLimiter, logger), // Per-minute rate limiting
-			middleware.PolicyVersionTag(policyStore, logger),
-			middleware.UsageTracker(usageTracker, logger), // BigQuery usage tracking
-			middleware.Metrics(),
-			middleware.Logging(logger),
-			middleware.Tracing(),
+			middleware.WithStepLogging("RequestID", logger, middleware.RequestID(logger)),
+			middleware.WithStepLogging("TenantContext", logger, middleware.TenantContext(tenantResolver, logger)), // Secure tenant resolution
+			middleware.WithStepLogging("QuotaEnforcement", logger, middleware.QuotaEnforcement(quotaEnforcer, logger)), // Monthly quota enforcement
+			middleware.WithStepLogging("RateLimit", logger, middleware.RateLimit(rateLimiter, logger)), // Per-minute rate limiting
+			middleware.WithStepLogging("PolicyVersionTag", logger, middleware.PolicyVersionTag(policyStore, logger)),
+			middleware.WithStepLogging("UsageTracker", logger, middleware.UsageTracker(usageTracker, logger)), // BigQuery usage tracking
+			middleware.WithStepLogging("Metrics", logger, middleware.Metrics()),
+			middleware.WithStepLogging("Logging", logger, middleware.Logging(logger)),
+			middleware.WithStepLogging("Tracing", logger, middleware.Tracing()),
 		),
 	)
 
@@ -332,8 +338,8 @@ func main() {
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  30 * time.Second,  // Increased for long-running requests
+		WriteTimeout: 300 * time.Second, // Match Envoy timeout (5 minutes)
 		IdleTimeout:  120 * time.Second,
 	}
 

@@ -74,6 +74,15 @@ static_resources:
                     - name: backend
                       domains: ["*"]
                       routes:
+                        # Debug endpoint - proxy to router health (for connectivity testing)
+                        - match:
+                            prefix: "/debug-router-health"
+                          route:
+                            cluster: router_cluster
+                            timeout: 10s
+                            prefix_rewrite: "/health"
+                            host_rewrite_literal: ${ROUTER_HOST}
+                        
                         # Health check endpoint (for Cloud Run)
                         - match:
                             prefix: "/healthz"
@@ -95,11 +104,12 @@ static_resources:
                             prefix: "/"
                           route:
                             cluster: router_cluster
-                            timeout: 30s
+                            timeout: 300s  # Match Cloud Run service timeout (5 minutes)
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 2
-                              per_try_timeout: 10s
+                              per_try_timeout: 60s  # Increased per-try timeout for long-running requests
+                            host_rewrite_literal: ${ROUTER_HOST}
 
                       # CORS
                       cors:
@@ -120,14 +130,17 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
 
                   # 2. Router (must be last)
+                  # Note: Service-to-service auth via identity tokens is not possible in Cloud Run
+                  # because metadata server (metadata.google.internal) is not accessible.
+                  # Router requires allUsers invoker permission + uses API key auth at app layer.
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
-    # Router service (Cloud Run)
+    # Router service (Cloud Run public URL over HTTPS)
     - name: router_cluster
-      type: LOGICAL_DNS
+      type: STRICT_DNS
       dns_lookup_family: V4_ONLY
       connect_timeout: 5s
       lb_policy: ROUND_ROBIN
@@ -138,18 +151,19 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      # Environment variable for router URL (injected at runtime)
-                      # Format: router-service-hash-uc.a.run.app
+                      # Full Cloud Run hostname (e.g., apx-router-dev-xxx-uc.a.run.app)
                       address: ${ROUTER_HOST}
-                      port_value: 443
+                      port_value: 443  # HTTPS endpoint for Cloud Run service
+
       transport_socket:
         name: envoy.transport_sockets.tls
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
           sni: ${ROUTER_HOST}
-      # NOTE: Health checks removed - Cloud Run backend requires authentication
-      # which is handled by auth sidecar for actual requests, not health checks
-      # Cloud Run's own health checks handle backend availability
+
+      # Health checks disabled in production - would require auth
+      # Cloud Run's infrastructure monitoring handles availability
+
 
 # Cloud Trace configuration
 tracing:
