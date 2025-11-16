@@ -2,7 +2,11 @@ module github.com/apx/workers
 
 go 1.23
 
-require cloud.google.com/go/storage v1.57.1
+require (
+	cloud.google.com/go/storage v1.57.1
+	cloud.google.com/go/firestore v1.20.0
+	github.com/apx/control v0.0.0
+)
 
 require (
 	cel.dev/expr v0.24.0 // indirect

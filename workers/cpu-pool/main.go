@@ -1,17 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
-	"syscall"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/firestore"
 	"github.com/redis/go-redis/v9"
+	"github.com/apx/control/pkg/opa"
+	"github.com/stratus-meridian/apx/router/pkg/status"
 	"go.uber.org/zap"
 )
 
@@ -33,6 +38,81 @@ type Worker struct {
 	redisClient *redis.Client
 	projectID   string
 	region      string
+	httpClient  *http.Client
+	statusStore status.Store
+	policyEval  *PolicyEvaluator
+}
+
+// PolicyEvaluator loads policy metadata from Firestore and evaluates Rego policies.
+type PolicyEvaluator struct {
+	client      *firestore.Client
+	collection  string
+	logger      *zap.Logger
+	enabled     bool
+}
+
+// Evaluate returns true if the request is allowed by the active policy.
+// It fails open on errors (logs and returns allowed=true) and only enforces
+// explicit deny decisions when evaluation succeeds and returns false.
+func (p *PolicyEvaluator) Evaluate(ctx context.Context, req *RequestMessage) (bool, error) {
+	if !p.enabled || p.client == nil || req.PolicyVersion == "" {
+		// No policy configured for this request.
+		return true, nil
+	}
+
+	policyRef := req.PolicyVersion
+
+	doc, err := p.client.Collection(p.collection).Doc(policyRef).Get(ctx)
+	if err != nil {
+		// If policy metadata is missing, treat as no policy.
+		p.logger.Warn("policy document not found; allowing request",
+			zap.String("policy_ref", policyRef),
+			zap.Error(err))
+		return true, nil
+	}
+
+	var meta struct {
+		AuthzRego string `firestore:"authz_rego"`
+	}
+	if err := doc.DataTo(&meta); err != nil {
+		p.logger.Warn("failed to decode policy document; allowing request",
+			zap.String("policy_ref", policyRef),
+			zap.Error(err))
+		return true, nil
+	}
+
+	if strings.TrimSpace(meta.AuthzRego) == "" {
+		// No authz Rego configured; allow.
+		return true, nil
+	}
+
+	engine, err := opa.NewEngine(ctx, meta.AuthzRego, "data.apx.allow")
+	if err != nil {
+		p.logger.Warn("failed to create OPA engine; allowing request",
+			zap.String("policy_ref", policyRef),
+			zap.Error(err))
+		return true, nil
+	}
+
+	input := map[string]interface{}{
+		"method": req.Method,
+		"route":  req.Route,
+		"tenant": map[string]interface{}{
+			"id":   req.TenantID,
+			"tier": req.TenantTier,
+		},
+		"headers": req.Headers,
+	}
+
+	allowed, err := engine.Eval(ctx, input)
+	if err != nil {
+		p.logger.Warn("OPA evaluation error; allowing request",
+			zap.String("policy_ref", policyRef),
+			zap.Error(err))
+		return true, nil
+	}
+
+	return allowed, nil
 }
 
 func main() {
@@ -60,12 +140,42 @@ func main() {
 	}
 	logger.Info("connected to Redis", zap.String("addr", redisAddr))
 
+	// Initialize status store (shared format with router + streaming aggregator)
+	statusStore := status.NewRedisStore(redisClient, 24*time.Hour)
+
+	// Initialize policy evaluator (fail-open if Firestore is unavailable)
+	var policyEval *PolicyEvaluator
+	fsClient, err := firestore.NewClient(ctx, projectID)
+	if err != nil {
+		logger.Warn("policy evaluation disabled (failed to create firestore client)",
+			zap.Error(err),
+			zap.String("project_id", projectID),
+		)
+	} else {
+		policyEval = &PolicyEvaluator{
+			client:     fsClient,
+			collection: getEnv("POLICY_COLLECTION", "policies"),
+			logger:     logger,
+			enabled:    true,
+		}
+		logger.Info("policy evaluation enabled",
+			zap.String("project_id", projectID),
+			zap.String("collection", policyEval.collection),
+		)
+		defer fsClient.Close()
+	}
+
 	// Initialize worker
 	worker := &Worker{
 		logger:      logger,
 		redisClient: redisClient,
 		projectID:   projectID,
 		region:      region,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		statusStore: statusStore,
+		policyEval:  policyEval,
 	}
 
 	// Initialize Pub/Sub client
@@ -95,9 +205,6 @@ func main() {
 	// Handle shutdown gracefully
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start HTTP health endpoint for Cloud Run
 	port := getEnv("PORT", "8080")
@@ -141,6 +248,8 @@ func main() {
 	}()
 
 	// Handle shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
 		logger.Info("shutdown signal received")
@@ -174,32 +283,43 @@ func (w *Worker) processMessage(ctx context.Context, msg *pubsub.Message) {
 		zap.String("tenant_id", reqMsg.TenantID),
 		zap.String("route", reqMsg.Route))
 
-	// Update status to processing
-	if err := w.updateStatus(ctx, reqMsg.RequestID, "processing", 0, nil, ""); err != nil {
-		w.logger.Error("failed to update status", zap.Error(err))
-	}
-
-	// Simulate work (replace with actual AI inference)
-	time.Sleep(100 * time.Millisecond)
-
-	// Simulate progress updates
-	for progress := 25; progress <= 75; progress += 25 {
-		if err := w.updateStatus(ctx, reqMsg.RequestID, "processing", progress, nil, ""); err != nil {
-			w.logger.Error("failed to update progress", zap.Error(err))
+	// Evaluate policy if enabled; deny if explicitly not allowed.
+	if w.policyEval != nil && w.policyEval.enabled {
+		allowed, err := w.policyEval.Evaluate(ctx, &reqMsg)
+		if err != nil {
+			w.logger.Warn("policy evaluation error - failing open",
+				zap.String("request_id", reqMsg.RequestID),
+				zap.Error(err))
+		} else if !allowed {
+			w.logger.Info("request denied by policy",
+				zap.String("request_id", reqMsg.RequestID),
+				zap.String("tenant_id", reqMsg.TenantID),
+				zap.String("policy_version", reqMsg.PolicyVersion))
+			_ = w.updateStatus(ctx, reqMsg.RequestID, "failed", 100, nil, "request denied by policy")
+			msg.Ack()
+			return
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Complete with result
-	result := map[string]interface{}{
-		"message":      "Request processed successfully",
-		"request_id":   reqMsg.RequestID,
-		"processed_at": time.Now().Format(time.RFC3339),
-		"tenant_id":    reqMsg.TenantID,
+	// Mark as processing (0% initially)
+	if err := w.updateStatus(ctx, reqMsg.RequestID, "processing", 0, nil, ""); err != nil {
+		w.logger.Error("failed to set status=processing", zap.Error(err))
 	}
 
+	// Perform backend call
+	result, err := w.callBackend(ctx, &reqMsg)
+	if err != nil {
+		w.logger.Error("backend call failed",
+			zap.String("request_id", reqMsg.RequestID),
+			zap.Error(err))
+		_ = w.updateStatus(ctx, reqMsg.RequestID, "failed", 100, nil, err.Error())
+		msg.Ack() // Ack to avoid redelivery storms; status carries failure
+		return
+	}
+
+	// Mark as complete with result
 	if err := w.updateStatus(ctx, reqMsg.RequestID, "complete", 100, result, ""); err != nil {
-		w.logger.Error("failed to update final status", zap.Error(err))
+		w.logger.Error("failed to set status=complete", zap.Error(err))
 		msg.Nack()
 		return
 	}
@@ -211,31 +331,87 @@ func (w *Worker) processMessage(ctx context.Context, msg *pubsub.Message) {
 	msg.Ack()
 }
 
-func (w *Worker) updateStatus(ctx context.Context, requestID, status string, progress int, result interface{}, errorMsg string) error {
-	// Build status record
-	statusData := map[string]interface{}{
-		"request_id": requestID,
-		"status":     status,
-		"progress":   progress,
-		"updated_at": time.Now().Format(time.RFC3339),
+// callBackend forwards the request to the configured backend.
+// For now it uses the Route field as the absolute URL to call.
+func (w *Worker) callBackend(ctx context.Context, req *RequestMessage) (map[string]interface{}, error) {
+	backendURL := req.Route
+	if backendURL == "" {
+		return nil, fmt.Errorf("empty route in request message")
 	}
 
-	if result != nil {
-		statusData["result"] = result
-	}
-	if errorMsg != "" {
-		statusData["error"] = errorMsg
+	// Build HTTP request
+	var body io.Reader
+	if len(req.Body) > 0 && req.Method != http.MethodGet && req.Method != http.MethodHead {
+		body = bytes.NewReader(req.Body)
 	}
 
-	// Serialize to JSON
-	data, err := json.Marshal(statusData)
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, backendURL, body)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to build backend request: %w", err)
 	}
 
-	// Store in Redis
-	key := fmt.Sprintf("status:%s", requestID)
-	return w.redisClient.Set(ctx, key, data, 24*time.Hour).Err()
+	// Copy selected headers
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	start := time.Now()
+	resp, err := w.httpClient.Do(httpReq)
+	latency := time.Since(start)
+	if err != nil {
+		return nil, fmt.Errorf("backend request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read backend response: %w", err)
+	}
+
+	w.logger.Info("backend response",
+		zap.String("request_id", req.RequestID),
+		zap.Int("status_code", resp.StatusCode),
+		zap.Duration("latency", latency))
+
+	return map[string]interface{}{
+		"status_code": resp.StatusCode,
+		"headers":     resp.Header,
+		"body":        string(respBody),
+		"latency_ms":  latency.Milliseconds(),
+		"route":       req.Route,
+	}, nil
+}
+
+func (w *Worker) updateStatus(ctx context.Context, requestID, status string, progress int, result interface{}, errorMsg string) error {
+	switch status {
+	case "processing":
+		if err := w.statusStore.UpdateStatus(ctx, requestID, status.StatusProcessing); err != nil {
+			return err
+		}
+		if progress > 0 && progress < 100 {
+			return w.statusStore.UpdateProgress(ctx, requestID, progress)
+		}
+	case "complete":
+		var raw json.RawMessage
+		if result != nil {
+			b, err := json.Marshal(result)
+			if err != nil {
+				return err
+			}
+			raw = json.RawMessage(b)
+		}
+		return w.statusStore.SetResult(ctx, requestID, raw)
+	case "failed":
+		if errorMsg == "" {
+			errorMsg = "request failed"
+		}
+		return w.statusStore.SetError(ctx, requestID, errorMsg)
+	default:
+		// Unknown status string; do nothing to avoid corrupting records.
+		return nil
+	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {

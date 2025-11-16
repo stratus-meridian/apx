@@ -18,6 +18,26 @@ type MockBackend struct {
 	logger *zap.Logger
 }
 
+// corsMiddleware adds CORS headers to all responses
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow all origins for a mock/testing backend
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Tenant-ID")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Rate-Limit-Remaining")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
@@ -27,6 +47,9 @@ func main() {
 
 	backend := &MockBackend{logger: logger}
 	r := mux.NewRouter()
+
+	// CORS middleware - allow all origins for mock backend
+	r.Use(corsMiddleware)
 
 	// Health endpoint
 	r.HandleFunc("/health", backend.Health).Methods("GET")
