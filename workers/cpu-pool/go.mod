@@ -3,12 +3,14 @@ module github.com/apx/workers/cpu-pool
 go 1.22
 
 require (
+	cloud.google.com/go/firestore v1.15.0
 	cloud.google.com/go/pubsub v1.33.0
-	cloud.google.com/go/secretmanager v1.10.0
 	github.com/redis/go-redis/v9 v9.16.0
+	github.com/stratus-meridian/apx/control v0.0.0
 	go.uber.org/zap v1.26.0
-	golang.org/x/sync v0.5.0
 )
+
+replace github.com/stratus-meridian/apx/control => ../../control
 
 require (
 	cloud.google.com/go v0.110.2 // indirect

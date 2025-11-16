@@ -276,13 +276,33 @@ func (m *Matcher) Handle(w http.ResponseWriter, r *http.Request) {
 			)
 			// Mark status as failed
 			m.statusStore.SetError(ctx, requestID, fmt.Sprintf("failed to publish: %v", err))
-			http.Error(w, `{"error":"failed to publish request"}`, http.StatusInternalServerError)
+			
+			// Return helpful error message
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":      "publish_failed",
+				"message":    "Failed to queue request for async processing",
+				"request_id": requestID,
+				"details":    err.Error(),
+			})
 			return
 		}
 	} else {
 		m.logger.Warn("pub/sub topic not configured, request not published",
 			zap.String("request_id", requestID),
 		)
+		
+		// Return helpful error for unconfigured route
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "route_not_configured",
+			"message": "This route is not configured for sync or async processing",
+			"path":    r.URL.Path,
+			"hint":    "Check your ROUTES_CONFIG environment variable or use a configured route like /mock/**",
+		})
+		return
 	}
 
 	// Return 202 Accepted with status URL

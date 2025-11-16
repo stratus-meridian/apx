@@ -10,13 +10,13 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
-	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/firestore"
+	"cloud.google.com/go/pubsub"
 	"github.com/redis/go-redis/v9"
-	"github.com/apx/control/pkg/opa"
-	"github.com/stratus-meridian/apx/router/pkg/status"
+	"github.com/stratus-meridian/apx/control/pkg/opa"
 	"go.uber.org/zap"
 )
 
@@ -39,7 +39,7 @@ type Worker struct {
 	projectID   string
 	region      string
 	httpClient  *http.Client
-	statusStore status.Store
+	statusStore StatusStore
 	policyEval  *PolicyEvaluator
 }
 
@@ -141,7 +141,7 @@ func main() {
 	logger.Info("connected to Redis", zap.String("addr", redisAddr))
 
 	// Initialize status store (shared format with router + streaming aggregator)
-	statusStore := status.NewRedisStore(redisClient, 24*time.Hour)
+	statusStore := NewRedisStatusStore(redisClient, 24*time.Hour)
 
 	// Initialize policy evaluator (fail-open if Firestore is unavailable)
 	var policyEval *PolicyEvaluator
@@ -385,7 +385,7 @@ func (w *Worker) callBackend(ctx context.Context, req *RequestMessage) (map[stri
 func (w *Worker) updateStatus(ctx context.Context, requestID, status string, progress int, result interface{}, errorMsg string) error {
 	switch status {
 	case "processing":
-		if err := w.statusStore.UpdateStatus(ctx, requestID, status.StatusProcessing); err != nil {
+		if err := w.statusStore.UpdateStatus(ctx, requestID, StatusProcessing); err != nil {
 			return err
 		}
 		if progress > 0 && progress < 100 {

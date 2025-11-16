@@ -77,7 +77,7 @@ func main() {
 	// Initialize Redis client for status storage
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:         cfg.RedisAddr,
-		Password:     "",
+		Password:     cfg.RedisPassword, // Use configured password for auth
 		DB:           0,
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,
@@ -126,8 +126,8 @@ func main() {
 	// Initialize usage tracker for BigQuery analytics
 	var usageTracker usage.UsageTracker
 	usageConfig := usage.DefaultTrackerConfig(cfg.ProjectID)
-	usageConfig.Dataset = "usage"
-	usageConfig.Table = "events"
+	usageConfig.Dataset = "apx_analytics_dev"
+	usageConfig.Table = "api_requests"
 
 	tracker, err := usage.NewBigQueryUsageTracker(ctx, usageConfig, logger)
 	if err != nil {
