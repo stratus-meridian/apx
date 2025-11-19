@@ -1,7 +1,7 @@
 # Docker Compose for local APX development
 # Includes: Portal (Next.js), Edge (Envoy), Router (Go), Redis, Pub/Sub emulator, Firestore emulator
 
-version: '3.9'
+version: "3.9"
 
 services:
   # Portal (Next.js Frontend)
@@ -45,8 +45,8 @@ services:
       context: .
       dockerfile: ./edge/Dockerfile
     ports:
-      - "8080:8080"  # Main HTTP port
-      - "9901:9901"  # Admin port
+      - "8082:8080" # Edge HTTP port (external:internal)
+      - "9901:9901" # Admin port
     environment:
       - ENVOY_LOG_LEVEL=info
     depends_on:
@@ -96,6 +96,130 @@ services:
       timeout: 3s
       retries: 3
 
+  # Control API (Go - APX Control Plane)
+  # NOTE: Runs on port 8080 externally. Kill any manual control-api before starting.
+  control-api:
+    build:
+      context: .
+      dockerfile: ./.private/control-api/Dockerfile
+    ports:
+      - "8080:8080" # Control API HTTP port (will replace manual go run instance)
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=dev
+      - DEV_MODE=true
+      - LOG_LEVEL=debug
+      # Firestore
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      # Redis
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      # JWT
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      # Provisioning API (use internal service name in docker)
+      - PROVISIONING_API_URL=http://provisioning-api:8080
+    depends_on:
+      - firestore
+      - redis
+    networks:
+      - apx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Compiler (Policy Compiler - OPA → WASM)
+  # Compiles YAML policy bundles to WASM artifacts
+  compiler:
+    build:
+      context: ./.private/control/compiler
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8082" # Compiler HTTP port (external:internal)
+    environment:
+      - PORT=8082
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      # Firestore
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      # GCS artifacts bucket (local simulation)
+      - GCS_ARTIFACTS_BUCKET=apx-dev-artifacts-local
+      - GCS_ARTIFACTS_PATH=/artifacts
+    depends_on:
+      - firestore
+    networks:
+      - apx-network
+    volumes:
+      - ./artifacts:/artifacts # Local artifacts storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # Provisioning API (Terraform-as-a-Service)
+  # Executes Terraform plans/applies for infrastructure provisioning
+  provisioning-api:
+    build:
+      context: ./.private/provisioning-api
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8080" # HTTP API (external:internal) - restored to 8085 now that pubsub uses different port
+      - "3003:3001" # WebSocket for live Terraform output (external:internal) - changed to 3003 to avoid conflict with portal dev server
+    environment:
+      - PORT=8080
+      - WS_PORT=3003 # External WebSocket port
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      # Base URL for external clients (browser) - uses external port
+      - BASE_URL=http://localhost:8085
+      # Firestore
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      # Redis
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      # Pub/Sub
+      - PUBSUB_EMULATOR_HOST=pubsub:8085
+      # JWT
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      # Terraform workspace
+      - TF_WORKSPACE=/workspace
+      - TF_DATA_DIR=/workspace/.terraform
+      # Docker compose project root (host path)
+      - PROJECT_ROOT=/Users/agentsy/APILEE
+    depends_on:
+      - firestore
+      - redis
+      - pubsub
+    # Note: These services are in 'never' profile, so they won't start.
+    # We're using external services (apx-redis, apx-firestore, apx-pubsub) on the same network.
+    networks:
+      - apx-network
+    volumes:
+      - ./terraform-workspace:/workspace # Terraform state/plans
+      - ./docker-compose.yml:/workspace/docker-compose.yml:ro # Mount docker-compose.yml for docker compose commands
+      - /var/run/docker.sock:/var/run/docker.sock # Docker-in-Docker (if needed)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   # Streaming Aggregator (SSE for long-running requests)
   streaming-aggregator:
     build:
@@ -116,6 +240,118 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+
+  # Billing Service (Billing management, metering, usage tracking)
+  billing-service:
+    build:
+      context: ./.private/billing-service
+      dockerfile: Dockerfile
+    ports:
+      - "8086:8080"
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=
+      - STRIPE_SECRET_KEY=sk_test_dev
+      - STRIPE_WEBHOOK_SECRET=whsec_dev
+      - COINBASE_API_KEY=dev-key
+      - COINBASE_WEBHOOK_SECRET=dev-webhook-secret
+    depends_on:
+      - firestore
+      - redis
+    networks:
+      - apx-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Deployment Worker (Pub/Sub subscriber for deployment automation)
+  deployment-worker:
+    build:
+      context: ./.private/deployment-worker
+      dockerfile: Dockerfile
+    ports:
+      - "8088:8080"
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      - PUBSUB_EMULATOR_HOST=pubsub:8085
+      - PUBSUB_SUBSCRIPTION=deployments-sub
+      - TF_WORKSPACE=/workspace
+      - TF_DATA_DIR=/workspace/.terraform
+    depends_on:
+      - firestore
+      - pubsub
+    networks:
+      - apx-network
+    volumes:
+      - ./terraform-workspace:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Monitor (Platform health monitoring)
+  monitor:
+    build:
+      context: ./.private/control/monitor
+      dockerfile: Dockerfile
+    ports:
+      - "8087:8080"
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - GCP_PROJECT_ID=apx-dev
+      - GCP_REGION=us-central1
+      - CONTROL_API_URL=http://control-api:8080
+      - ROUTER_URL=http://router:8081
+      - EDGE_URL=http://edge:8082
+    depends_on:
+      - firestore
+      - control-api
+      - router
+      - edge
+    networks:
+      - apx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   # CPU Worker Pool (processes async requests)
   cpu-worker:
@@ -153,8 +389,23 @@ services:
   firestore:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
     ports:
-      - "8082:8080"
-    command: gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=apx-dev
+      - "8082:8080" # Firestore emulator (external:internal)
+    command: >
+      bash -c "
+      apt-get update -qq && 
+      apt-get install -y -qq wget && 
+      ARCH=$$(uname -m) && 
+      if [ \"$$ARCH\" = \"aarch64\" ] || [ \"$$ARCH\" = \"arm64\" ]; then
+        JDK_URL=\"https://download.java.net/java/GA/jdk21.0.2/f2283984656d49d69e91c558476027ac/13/GPL/openjdk-21.0.2_linux-aarch64_bin.tar.gz\"
+      else
+        JDK_URL=\"https://download.java.net/java/GA/jdk21.0.2/f2283984656d49d69e91c558476027ac/13/GPL/openjdk-21.0.2_linux-x64_bin.tar.gz\"
+      fi && 
+      wget -qO- $$JDK_URL | tar -xz -C /opt && 
+      export JAVA_HOME=/opt/jdk-21.0.2 && 
+      export PATH=$$JAVA_HOME/bin:$$PATH && 
+      java -version && 
+      gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=apx-dev
+      "
     environment:
       - FIRESTORE_PROJECT_ID=apx-dev
     networks:
@@ -164,7 +415,7 @@ services:
   pubsub:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
     ports:
-      - "8085:8085"
+      - "8089:8085" # Pub/Sub emulator (external:internal) - changed to 8089 to avoid conflict with provisioning-api
     command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=apx-dev
     environment:
       - PUBSUB_PROJECT_ID=apx-dev
@@ -175,10 +426,10 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector:latest
     ports:
-      - "4317:4317"  # OTLP gRPC receiver
-      - "4318:4318"  # OTLP HTTP receiver
-      - "8889:8889"  # Prometheus metrics exporter
-      - "55679:55679"  # ZPages
+      - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318" # OTLP HTTP receiver
+      - "8889:8889" # Prometheus metrics exporter
+      - "55679:55679" # ZPages
     volumes:
       - ./observability/otel/otel-collector-config.yaml:/etc/otel/config.yaml
     command: ["--config=/etc/otel/config.yaml"]
@@ -194,8 +445,8 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
     networks:
       - apx-network
 
@@ -219,7 +470,7 @@ services:
 
 networks:
   apx-network:
-    driver: bridge
+    external: true
 
 volumes:
   redis-data:
